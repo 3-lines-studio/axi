@@ -21,6 +21,10 @@ export function Connect(baseURL: string, username: string, password: string): $C
     return $Call.ByID(1210147758, baseURL, username, password);
 }
 
+export function DeleteProject(id: string): $CancellablePromise<void> {
+    return $Call.ByID(654211872, id);
+}
+
 export function DeleteSession(id: string): $CancellablePromise<void> {
     return $Call.ByID(4044255501, id);
 }

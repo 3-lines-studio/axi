@@ -154,6 +154,28 @@ func (s *AXService) AddProject(name, path string) (Project, error) {
 	return result, nil
 }
 
+func (s *AXService) DeleteProject(id string) error {
+	s.mu.Lock()
+	baseURL := s.baseURL
+	username := s.username
+	password := s.password
+	s.mu.Unlock()
+	req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/projects/"+url.PathEscape(id), nil)
+	if err != nil {
+		return err
+	}
+	setAuth(req, username, password)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return responseError(resp)
+	}
+	return nil
+}
+
 func (s *AXService) Sessions(projectID string) ([]Session, error) {
 	var items []Session
 	if err := s.getJSON("/api/projects/"+url.PathEscape(projectID)+"/sessions", &items); err != nil {

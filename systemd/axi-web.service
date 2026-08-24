@@ -1,0 +1,14 @@
+[Unit]
+Description=Axi web interface
+After=axis.service
+Requires=axis.service
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.config/axis/environment
+ExecStart=%h/.local/bin/axi web
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

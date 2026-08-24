@@ -141,11 +141,11 @@ textarea:focus {
 .app-shell {
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: 1fr;
 }
 
 header {
-  display: flex;
+  display: none;
   align-items: center;
   gap: var(--space-3);
   min-height: 62px;
@@ -180,6 +180,11 @@ header {
   font-size: 18px;
 }
 
+.mobile-menu svg {
+  width: 20px;
+  height: 20px;
+}
+
 .quiet {
   padding: 7px 9px;
   border: 0;
@@ -206,10 +211,6 @@ header {
   stroke-width: 1.4;
 }
 
-.server-action circle {
-  fill: currentColor;
-  stroke: none;
-}
 
 .workspace {
   min-height: 0;
@@ -219,10 +220,24 @@ header {
 
 aside {
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   padding: var(--space-3);
   border-right: 1px solid #deded6;
   background: #eeeeea;
+}
+
+.sidebar-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 42px;
+  margin-bottom: var(--space-3);
+}
+
+.sidebar-header strong {
+  font-size: 14px;
 }
 
 .add-project.top {
@@ -238,9 +253,28 @@ aside {
 }
 
 .projects {
+  min-height: 0;
   display: grid;
+  align-content: start;
   gap: var(--space-2);
   margin-top: var(--space-3);
+  overflow-y: auto;
+}
+
+.sidebar-server {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid #d8d8d0;
+}
+
+.sidebar-server .server-url {
+  padding: 0 var(--space-2);
+}
+
+.sidebar-server .server-action {
+  justify-content: flex-start;
 }
 
 .projects section {
@@ -264,7 +298,7 @@ aside {
 
 .project-row {
   display: grid;
-  grid-template-columns: 1fr 30px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-1);
 }
@@ -301,6 +335,7 @@ aside {
 }
 
 .project-new,
+.project-remove,
 .session-delete {
   display: grid;
   place-items: center;
@@ -308,19 +343,27 @@ aside {
   opacity: 0;
 }
 
-.project-new {
+.project-new,
+.project-remove {
   width: 28px;
   height: 28px;
 }
 
+.project-remove {
+  color: #9a514c;
+}
+
 .project-row:hover .project-new,
+.project-row:hover .project-remove,
 .project-new:focus-visible,
+.project-remove:focus-visible,
 .session-row:hover .session-delete,
 .session-delete:focus-visible {
   opacity: 1;
 }
 
 .project-new svg,
+.project-remove svg,
 .session-delete svg {
   width: 16px;
   height: 16px;
@@ -602,12 +645,20 @@ article {
 }
 
 .tool-section-head button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: 3px 6px;
   border: 0;
   border-radius: 5px;
   color: #66665f;
   background: #deded6;
   font-size: 9px;
+}
+
+.tool-section-head button svg {
+  width: 11px;
+  height: 11px;
 }
 
 .tool-section pre {
@@ -685,6 +736,11 @@ textarea:focus {
   background: #292925;
   font-size: 19px;
   font-weight: 700;
+}
+
+.send svg {
+  width: 18px;
+  height: 18px;
 }
 
 .send:disabled {
@@ -831,6 +887,11 @@ textarea:focus {
   font-size: 20px;
 }
 
+.close svg {
+  width: 17px;
+  height: 17px;
+}
+
 .folder-filter {
   margin: var(--space-3) var(--space-4) 0;
 }
@@ -882,6 +943,11 @@ textarea:focus {
 .folder-icon {
   color: #8a8a81;
   font-size: 18px;
+}
+
+.folder-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .picker-status {
@@ -948,6 +1014,7 @@ textarea:focus {
   }
 
   .project-new,
+  .project-remove,
   .session-delete {
     opacity: 1;
   }
@@ -973,7 +1040,12 @@ textarea:focus {
     border-radius: 0;
   }
 
+  .app-shell {
+    grid-template-rows: auto 1fr;
+  }
+
   header {
+    display: flex;
     min-height: 54px;
     gap: 8px;
     padding-inline: max(8px, env(safe-area-inset-left)) max(8px, env(safe-area-inset-right));
@@ -983,7 +1055,7 @@ textarea:focus {
     font-size: 12px;
   }
 
-  .server-action {
+  header .server-action {
     width: 34px;
     height: 34px;
     display: grid;
@@ -991,11 +1063,11 @@ textarea:focus {
     padding: 0;
   }
 
-  .server-action span {
+  header .server-action span {
     display: none;
   }
 
-  .server-action svg {
+  header .server-action svg {
     width: 17px;
     height: 17px;
     fill: none;
@@ -1096,12 +1168,13 @@ textarea:focus {
 
   .mobile-menu,
   header .theme-toggle,
-  .server-action {
+  header .server-action {
     width: 40px;
     height: 40px;
   }
 
-  .project-new {
+  .project-new,
+  .project-remove {
     width: 40px;
     height: 40px;
     opacity: 1;
@@ -1226,8 +1299,12 @@ textarea:focus {
   background: rgba(29, 29, 27, 0.92);
 }
 
-:root[data-theme='dark'] aside {
+:root[data-theme='dark'] aside,
+:root[data-theme='dark'] .sidebar-server {
   border-color: #383834;
+}
+
+:root[data-theme='dark'] aside {
   background: #20201e;
 }
 

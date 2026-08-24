@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -15,6 +16,13 @@ func init() {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "web" {
+		if err := runWeb(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	ax := NewAXService()
 	app := application.New(application.Options{
 		Name:        "Axi",

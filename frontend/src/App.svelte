@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Events } from '@wailsio/runtime';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { AXService } from '../bindings/github.com/3-lines-studio/axi';
+  import { ArrowUp, ChevronRight, Copy, FileText, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
+  import { browser, client, subscribe } from './client';
 
   type Project = { id: string; name: string };
   type DirectoryRoot = { name: string; path: string };
@@ -36,6 +36,7 @@
   let directoryFilter = $state('');
   let projectName = $state('');
   let pendingDelete = $state<{ project: Project; session: Session }>();
+  let pendingProjectDelete = $state<Project>();
   let error = $state('');
   let projects: Project[] = $state([]);
   let sessionsByProject: Record<string, Session[]> = $state({});
@@ -48,7 +49,7 @@
   let transcript = $state<HTMLElement>();
   let composer = $state<HTMLTextAreaElement>();
 
-  onMount(() => {
+  onMount(async () => {
     if (/Linux/.test(navigator.userAgent) && !/(Chrome|Chromium)/.test(navigator.userAgent)) {
       document.documentElement.dataset.engine = 'webkitgtk';
     }
@@ -56,7 +57,10 @@
     applyTheme();
     baseUrl = localStorage.getItem('ax-url') ?? '';
     username = localStorage.getItem('ax-username') ?? '';
-    Events.On('ax:event', (event: { data: AXEvent }) => receive(event.data));
+    await subscribe(receive);
+    if (browser) {
+      await connect();
+    }
   });
 
   function toggleTheme(): void {
@@ -73,9 +77,9 @@
     error = '';
     loading = true;
     try {
-      await AXService.Connect(baseUrl, username, password);
-      projects = await AXService.Projects() as Project[];
-      const activeRuns = await AXService.ResumeRuns() as { session_id: string }[];
+      await client.Connect(baseUrl, username, password);
+      projects = await client.Projects() as Project[];
+      const activeRuns = await client.ResumeRuns() as { session_id: string }[];
       runningSessions = activeRuns.map((run) => run.session_id);
       localStorage.setItem('ax-url', baseUrl.trim());
       localStorage.setItem('ax-username', username);
@@ -107,7 +111,7 @@
   }
 
   async function loadSessions(id: string): Promise<void> {
-    sessionsByProject[id] = await AXService.Sessions(id) as Session[];
+    sessionsByProject[id] = await client.Sessions(id) as Session[];
     if (!loadedProjects.includes(id)) {
       loadedProjects = [...loadedProjects, id];
     }
@@ -139,7 +143,7 @@
     pickerLoading = true;
     error = '';
     try {
-      const result = await AXService.Directories(path) as DirectoryResponse;
+      const result = await client.Directories(path) as DirectoryResponse;
       directoryRoots = result.roots ?? [];
       directoryPath = result.path ?? '';
       directoryParent = result.parent ?? '';
@@ -162,8 +166,8 @@
     pickerLoading = true;
     error = '';
     try {
-      const item = await AXService.AddProject(projectName.trim(), directoryPath) as Project;
-      projects = await AXService.Projects() as Project[];
+      const item = await client.AddProject(projectName.trim(), directoryPath) as Project;
+      projects = await client.Projects() as Project[];
       pickerOpen = false;
       if (!expandedProjects.includes(item.id)) {
         expandedProjects = [...expandedProjects, item.id];
@@ -192,7 +196,7 @@
     }
     error = '';
     try {
-      const item = await AXService.NewSession(targetProject) as SessionDetail;
+      const item = await client.NewSession(targetProject) as SessionDetail;
       projectId = targetProject;
       sessionId = item.id;
       messages = [];
@@ -202,6 +206,43 @@
       sidebarOpen = false;
       await tick();
       composer?.focus();
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  async function requestProjectDelete(project: Project): Promise<void> {
+    error = '';
+    if (!loadedProjects.includes(project.id)) {
+      await loadSessions(project.id);
+    }
+    if ((sessionsByProject[project.id] ?? []).length > 0) {
+      error = 'Delete this directory’s chats first.';
+      return;
+    }
+    pendingProjectDelete = project;
+  }
+
+  async function deleteProject(): Promise<void> {
+    if (!pendingProjectDelete) {
+      return;
+    }
+    const project = pendingProjectDelete;
+    pendingProjectDelete = undefined;
+    error = '';
+    try {
+      await client.DeleteProject(project.id);
+      projects = projects.filter((item) => item.id !== project.id);
+      expandedProjects = expandedProjects.filter((id) => id !== project.id);
+      loadedProjects = loadedProjects.filter((id) => id !== project.id);
+      delete sessionsByProject[project.id];
+      localStorage.setItem('ax-expanded-projects', JSON.stringify(expandedProjects));
+      if (projectId === project.id) {
+        projectId = projects[0]?.id ?? '';
+        sessionId = '';
+        messages = [];
+        localStorage.removeItem('ax-project');
+      }
     } catch (cause) {
       error = messageFrom(cause);
     }
@@ -221,7 +262,7 @@
     pendingDelete = undefined;
     error = '';
     try {
-      await AXService.DeleteSession(session.id);
+      await client.DeleteSession(session.id);
       sessionsByProject[project.id] = (sessionsByProject[project.id] ?? []).filter((item) => item.id !== session.id);
       if (sessionId === session.id) {
         sessionId = '';
@@ -236,7 +277,7 @@
     loading = true;
     error = '';
     try {
-      const item = await AXService.OpenSession(id) as SessionDetail;
+      const item = await client.OpenSession(id) as SessionDetail;
       projectId = item.project_id;
       sessionId = item.id;
       const restored = restoreTranscript(item.messages ?? []);
@@ -275,7 +316,7 @@
     await scrollToEnd();
 
     try {
-      await AXService.Send(targetSession, text);
+      await client.Send(targetSession, text);
     } catch (cause) {
       transcriptsBySession[targetSession]?.pop();
       runningSessions = runningSessions.filter((id) => id !== targetSession);
@@ -285,7 +326,7 @@
 
   async function cancel(): Promise<void> {
     try {
-      await AXService.Cancel(sessionId);
+      await client.Cancel(sessionId);
     } catch (cause) {
       error = messageFrom(cause);
     }
@@ -438,7 +479,7 @@
   <main class="connect-shell">
     <form class="connect-card" onsubmit={(event) => { event.preventDefault(); void connect(); }}>
       <button class="theme-toggle connect-theme" type="button" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
-        {#if darkMode}<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.25"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></svg>{:else}<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.8 12.7A7 7 0 0 1 7.3 3.2 7 7 0 1 0 16.8 12.7Z"/></svg>{/if}
+        {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
       </button>
       <div class="mark">AX</div>
       <div><h1>Connect to Axis</h1><p>Enter your Axis server URL.</p></div>
@@ -452,29 +493,36 @@
 {:else}
   <main class="app-shell">
     <header>
-      <button class="mobile-menu" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Sessions">☰</button>
-      <div class="mark small">AX</div>
+      <button class="mobile-menu" onclick={() => sidebarOpen = !sidebarOpen} aria-label="Sessions"><Menu aria-hidden="true" /></button>
       <strong class="active-project">{projects.find((project) => project.id === projectId)?.name ?? 'No project selected'}</strong>
-      <span class="server-url">{baseUrl}</span>
       <button class="theme-toggle" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
-        {#if darkMode}<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.25"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></svg>{:else}<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.8 12.7A7 7 0 0 1 7.3 3.2 7 7 0 1 0 16.8 12.7Z"/></svg>{/if}
+        {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
       </button>
-      <button class="quiet server-action" onclick={() => { connected = false; messages = []; }} aria-label="Change server" title="Change server"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="7" cy="5" r="1"/><circle cx="13" cy="10" r="1"/><circle cx="8" cy="15" r="1"/></svg><span>Change server</span></button>
     </header>
 
     <div class="workspace">
       <aside class:open={sidebarOpen}>
+        <div class="sidebar-header">
+          <div class="mark small">AX</div>
+          <strong>Axi</strong>
+          <button class="theme-toggle" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
+            {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
+          </button>
+        </div>
         <button class="add-project top" onclick={() => void openPicker()}>+ Add directory</button>
         <nav class="projects">
           {#each projects as project}
             <section class:current={project.id === projectId}>
               <div class="project-row">
                 <button class="project-toggle" onclick={() => void toggleProject(project.id)} aria-expanded={expandedProjects.includes(project.id)}>
-                  <svg class:expanded={expandedProjects.includes(project.id)} viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+                  <ChevronRight class={expandedProjects.includes(project.id) ? 'expanded' : ''} aria-hidden="true" />
                   <strong>{project.name}</strong>
                 </button>
+                <button class="project-remove" onclick={() => void requestProjectDelete(project)} aria-label={`Remove ${project.name}`} title="Remove directory">
+                  <FolderMinus aria-hidden="true" />
+                </button>
                 <button class="project-new" onclick={() => void newSession(project.id)} aria-label={`New chat in ${project.name}`} title="New chat">
-                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3.5h8a2 2 0 0 1 2 2v4M4 3.5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3l3 2.5v-2.5h2M15 11v6m-3-3h6" /></svg>
+                  <MessageSquarePlus aria-hidden="true" />
                 </button>
               </div>
               {#if expandedProjects.includes(project.id)}
@@ -483,7 +531,7 @@
                     <div class="session-row" class:active={session.id === sessionId}>
                       <button class="session-open" onclick={() => void openSession(session.id)}><span>{session.title}</span>{#if isRunning(session.id)}<i class="session-running" aria-label="Running"></i>{/if}</button>
                       <button class="session-delete" onclick={() => requestDelete(project, session)} disabled={isRunning(session.id)} aria-label={`Delete ${session.title}`} title="Delete chat">
-                        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 3h4l1 3H7l1-3Zm-2 3 1 11h6l1-11M9 9v5m2-5v5" /></svg>
+                        <Trash2 aria-hidden="true" />
                       </button>
                     </div>
                   {:else}
@@ -494,6 +542,12 @@
             </section>
           {/each}
         </nav>
+        <div class="sidebar-server">
+          <span class="server-url">{browser ? 'Axis via Axi Web' : baseUrl}</span>
+          {#if !browser}
+            <button class="quiet server-action" onclick={() => { connected = false; messages = []; }} aria-label="Change server" title="Change server"><SlidersHorizontal aria-hidden="true" /><span>Change server</span></button>
+          {/if}
+        </div>
       </aside>
       {#if sidebarOpen}<button class="scrim" onclick={() => sidebarOpen = false} aria-label="Close sessions"></button>{/if}
 
@@ -515,17 +569,17 @@
                 <button class="tool-head" onclick={() => item.expanded = !item.expanded} aria-expanded={item.expanded}>
                   <span class="tool-icon">
                     {#if item.name === 'bash' || item.name === 'bashx'}
-                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m4 6 3 3-3 3m5 1h6M3 3h14v14H3z" /></svg>
+                      <Terminal aria-hidden="true" />
                     {:else if item.name === 'read' || item.name === 'write' || item.name === 'edit'}
-                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5h7l3 3v12H5zM12 2.5v3h3M8 9h4m-4 3h4" /></svg>
+                      <FileText aria-hidden="true" />
                     {:else}
-                      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12 3 1 3 3 1-2 2 1 3-3-1-2 3-2-3-3 1 1-3-2-2 3-1 1-3 2 2z" /></svg>
+                      <Wrench aria-hidden="true" />
                     {/if}
                   </span>
                   <strong>{item.name}</strong>
                   <span class="tool-summary">{toolSummary(item)}</span>
                   <span class="tool-status">{item.status === 'running' ? 'Running' : item.status === 'failed' ? 'Failed' : 'Done'}</span>
-                  <svg class="tool-chevron" class:expanded={item.expanded} viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+                  <ChevronRight class={`tool-chevron${item.expanded ? ' expanded' : ''}`} aria-hidden="true" />
                 </button>
                 {#if item.expanded}
                   <div class="tool-detail">
@@ -534,7 +588,7 @@
                     {/if}
                     {#if item.output}
                       <div class="tool-section">
-                        <div class="tool-section-head"><span>Output</span><button onclick={() => void navigator.clipboard.writeText(item.output)}>Copy</button></div>
+                        <div class="tool-section-head"><span>Output</span><button onclick={() => void navigator.clipboard.writeText(item.output)}><Copy aria-hidden="true" />Copy</button></div>
                         <pre>{item.output}</pre>
                       </div>
                     {:else if item.status === 'running'}
@@ -554,7 +608,7 @@
             {#if isRunning(sessionId)}
               <button class="stop" onclick={() => void cancel()} aria-label="Stop">■</button>
             {:else}
-              <button class="send" onclick={() => void send()} disabled={!prompt.trim()} aria-label="Send">↑</button>
+              <button class="send" onclick={() => void send()} disabled={!prompt.trim()} aria-label="Send"><ArrowUp aria-hidden="true" /></button>
             {/if}
           </div>
           <p class="hint">Enter to send · Shift+Enter for a new line</p>
@@ -563,11 +617,29 @@
     </div>
   </main>
 
+  {#if pendingProjectDelete}
+    <div class="modal-backdrop delete-backdrop" role="presentation">
+      <div class="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="remove-project-title" aria-describedby="remove-project-description">
+        <div class="delete-icon">
+          <FolderMinus aria-hidden="true" />
+        </div>
+        <div>
+          <h2 id="remove-project-title">Remove directory?</h2>
+          <p id="remove-project-description"><strong>{pendingProjectDelete.name}</strong> will be removed from Axi. Its files will not be changed.</p>
+        </div>
+        <div class="delete-actions">
+          <button class="quiet-action" onclick={() => pendingProjectDelete = undefined}>Cancel</button>
+          <button class="delete-action" onclick={() => void deleteProject()}>Remove directory</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if pendingDelete}
     <div class="modal-backdrop delete-backdrop" role="presentation">
       <div class="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" aria-describedby="delete-description">
         <div class="delete-icon">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6h12M8 3h4l1 3H7l1-3Zm-2 3 1 11h6l1-11M9 9v5m2-5v5" /></svg>
+          <Trash2 aria-hidden="true" />
         </div>
         <div>
           <h2 id="delete-title">Delete chat?</h2>
@@ -586,7 +658,7 @@
       <div class="directory-picker" role="dialog" aria-modal="true" aria-labelledby="picker-title">
         <div class="picker-head">
           <div><h2 id="picker-title">Add directory</h2><p>{directoryPath || 'Choose a location'}</p></div>
-          <button class="close" onclick={() => pickerOpen = false} aria-label="Close">×</button>
+          <button class="close" onclick={() => pickerOpen = false} aria-label="Close"><X aria-hidden="true" /></button>
         </div>
 
         {#if directoryPath}
@@ -599,7 +671,7 @@
               <button onclick={() => void browse(root.path)}><span class="folder-icon">□</span><span><strong>{root.name}</strong><small>{root.path}</small></span><b>›</b></button>
             {/each}
           {:else}
-            {#if directoryParent}<button onclick={() => void browse(directoryParent)}><span class="folder-icon">↑</span><span><strong>Parent directory</strong></span></button>{/if}
+            {#if directoryParent}<button onclick={() => void browse(directoryParent)}><span class="folder-icon"><FolderUp aria-hidden="true" /></span><span><strong>Parent directory</strong></span></button>{/if}
             {#each visibleDirectories() as directory}
               <button onclick={() => void browse(directory.path)}>
                 <span class="folder-icon">□</span>
