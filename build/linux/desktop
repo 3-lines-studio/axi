@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Axi
+Comment=Native client for Axis
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/axi %u
+Terminal=false
+Type=Application
+Icon=axi
+Categories=Utility;
+StartupWMClass=axi
+
+ 

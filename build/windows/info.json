@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "3 Lines Studio",
+			"FileDescription": "Native client for Axis",
+			"LegalCopyright": "© now, My Company",
+			"ProductName": "Axi",
+			"Comments": "This is a comment"
+		}
+	}
+}

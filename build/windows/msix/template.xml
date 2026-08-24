@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="axi"
+        Arguments=""
+        InstallLocation="C:\Program Files\3 Lines Studio\AX">
+    </Installer>
+    <PackageInformation
+        PackageName="AX"
+        PackageDisplayName="AX"
+        PublisherName="CN=3 Lines Studio"
+        PublisherDisplayName="3 Lines Studio"
+        Version="0.1.0.0"
+        PackageDescription="Native client for AX">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="studio.3lines.axi"
+                Description="Native client for AX"
+                DisplayName="AX"
+                ExecutableName="axi"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="en-us" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>AX</DisplayName>
+            <PublisherDisplayName>3 Lines Studio</PublisherDisplayName>
+            <Description>Native client for AX</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="axi.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>
