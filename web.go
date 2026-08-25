@@ -92,7 +92,7 @@ func runWeb() error {
 			updates.check(true)
 			response.WriteHeader(http.StatusNoContent)
 		})
-		mux.HandleFunc("POST /api/local/update/install", func(response http.ResponseWriter, request *http.Request) {
+		startChange := func(response http.ResponseWriter, start func(string, *os.File) error) {
 			active, err := local.hasActiveRuns()
 			if err != nil {
 				http.Error(response, err.Error(), http.StatusBadGateway)
@@ -112,7 +112,7 @@ func runWeb() error {
 				http.Error(response, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			err = updates.startInstall(browserURL, logFile)
+			err = start(browserURL, logFile)
 			logFile.Close()
 			if err != nil {
 				http.Error(response, err.Error(), http.StatusInternalServerError)
@@ -120,6 +120,12 @@ func runWeb() error {
 			}
 			response.WriteHeader(http.StatusNoContent)
 			quit <- struct{}{}
+		}
+		mux.HandleFunc("POST /api/local/update/install", func(response http.ResponseWriter, request *http.Request) {
+			startChange(response, updates.startInstall)
+		})
+		mux.HandleFunc("POST /api/local/update/rollback", func(response http.ResponseWriter, request *http.Request) {
+			startChange(response, updates.startRollback)
 		})
 		mux.HandleFunc("POST /api/local/quit", func(response http.ResponseWriter, request *http.Request) {
 			select {
@@ -225,8 +231,8 @@ func startLocalAxis(ctx context.Context) (*localAxis, error) {
 		return nil, err
 	}
 	command := exec.CommandContext(ctx, axisPath)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
+	command.Stdout = log.Writer()
+	command.Stderr = log.Writer()
 	command.Env = append(os.Environ(),
 		"AXIS_ADDRESS="+address,
 		"AXIS_USERNAME="+username,

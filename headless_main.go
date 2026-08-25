@@ -18,7 +18,23 @@ func main() {
 		}
 		return
 	}
-	if filepath.Base(os.Args[0]) == "axi-daemon" || len(os.Args) == 2 && os.Args[1] == "web" {
+	if filepath.Base(os.Args[0]) == "axi-daemon" {
+		home, err := axiHome()
+		if err != nil {
+			log.Fatal(err)
+		}
+		logger, err := newRollingLog(home)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer logger.Close()
+		log.SetOutput(logger)
+		if err := runWeb(); err != nil {
+			log.Print(err)
+		}
+		return
+	}
+	if len(os.Args) == 2 && os.Args[1] == "web" {
 		if err := runWeb(); err != nil {
 			log.Fatal(err)
 		}

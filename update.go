@@ -31,6 +31,7 @@ type updateStatus struct {
 	Latest      string `json:"latest,omitempty"`
 	Available   bool   `json:"available"`
 	Downloaded  bool   `json:"downloaded"`
+	Rollback    bool   `json:"rollback"`
 	Checking    bool   `json:"checking"`
 	Error       string `json:"error,omitempty"`
 	LastChecked string `json:"last_checked,omitempty"`
@@ -58,7 +59,9 @@ func newUpdater(home string) *updater {
 func (u *updater) currentStatus() updateStatus {
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	return u.status
+	status := u.status
+	status.Rollback = validBundleDirectory(filepath.Join(u.home, "updates", "previous"))
+	return status
 }
 
 func (u *updater) check(force bool) {
@@ -155,6 +158,12 @@ func (u *updater) checkAndDownload() error {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
 	}
+	complete := false
+	defer func() {
+		if !complete {
+			os.RemoveAll(directory)
+		}
+	}()
 	bundlePath := filepath.Join(directory, bundleName)
 	checksumPath := bundlePath + ".sha256"
 	if err := downloadUpdate(client, bundleURL, bundlePath, 150<<20); err != nil {
@@ -182,6 +191,7 @@ func (u *updater) checkAndDownload() error {
 	u.status.Downloaded = true
 	u.staging = staging
 	u.mu.Unlock()
+	complete = true
 	return nil
 }
 
@@ -334,6 +344,28 @@ func (u *updater) startInstall(address string, logFile *os.File) error {
 	if !ready || staging == "" {
 		return errors.New("no update is ready")
 	}
+	return startUpdateInstaller(staging, address, logFile)
+}
+
+func (u *updater) startRollback(address string, logFile *os.File) error {
+	previous := filepath.Join(u.home, "updates", "previous")
+	if !validBundleDirectory(previous) {
+		return errors.New("no previous version is available")
+	}
+	return startUpdateInstaller(previous, address, logFile)
+}
+
+func validBundleDirectory(directory string) bool {
+	for _, name := range bundleBinaries {
+		info, err := os.Stat(filepath.Join(directory, name))
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func startUpdateInstaller(staging string, address string, logFile *os.File) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
@@ -371,27 +403,30 @@ func applyUpdate(staging string, address string) error {
 	if err != nil {
 		return err
 	}
-	backup := filepath.Join(home, "updates", "previous")
-	if err := os.RemoveAll(backup); err != nil {
+	previous := filepath.Join(home, "updates", "previous")
+	swap := filepath.Join(home, "updates", "swap")
+	if err := os.RemoveAll(swap); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(backup, 0700); err != nil {
+	if err := os.MkdirAll(swap, 0700); err != nil {
 		return err
 	}
 	for _, name := range bundleBinaries {
-		if err := copyExecutable(filepath.Join(binaryDirectory, name), filepath.Join(backup, name)); err != nil {
+		if err := copyExecutable(filepath.Join(binaryDirectory, name), filepath.Join(swap, name)); err != nil {
 			return err
 		}
 	}
 	for _, name := range bundleBinaries {
 		if err := replaceExecutable(filepath.Join(staging, name), filepath.Join(binaryDirectory, name)); err != nil {
-			rollbackUpdate(backup, binaryDirectory)
+			rollbackUpdate(swap, binaryDirectory)
+			os.RemoveAll(swap)
 			return err
 		}
 	}
 	updated, err := startUpdatedAxi(filepath.Join(binaryDirectory, "axi"), home)
 	if err != nil {
-		rollbackUpdate(backup, binaryDirectory)
+		rollbackUpdate(swap, binaryDirectory)
+		os.RemoveAll(swap)
 		return err
 	}
 	deadline = time.Now().Add(10 * time.Second)
@@ -399,19 +434,32 @@ func applyUpdate(staging string, address string) error {
 		running, _ := probeAxi(address)
 		if running {
 			updated.Process.Release()
-			os.RemoveAll(staging)
+			if err := os.RemoveAll(previous); err != nil {
+				return err
+			}
+			if err := os.Rename(swap, previous); err != nil {
+				return err
+			}
+			if staging != previous {
+				if filepath.Base(staging) == "staging" {
+					os.RemoveAll(filepath.Dir(staging))
+				} else {
+					os.RemoveAll(staging)
+				}
+			}
 			return nil
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	updated.Process.Kill()
 	updated.Wait()
-	rollbackUpdate(backup, binaryDirectory)
-	previous, err := startUpdatedAxi(filepath.Join(binaryDirectory, "axi"), home)
+	rollbackUpdate(swap, binaryDirectory)
+	os.RemoveAll(swap)
+	restored, err := startUpdatedAxi(filepath.Join(binaryDirectory, "axi"), home)
 	if err != nil {
 		return fmt.Errorf("update and rollback restart failed: %w", err)
 	}
-	previous.Process.Release()
+	restored.Process.Release()
 	return errors.New("updated Axi failed health check; previous version restored")
 }
 

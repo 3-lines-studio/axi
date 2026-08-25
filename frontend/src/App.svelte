@@ -21,7 +21,7 @@
   type ChatItem = Message | ToolItem | ArtifactItem;
   type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[] };
   type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number };
-  type UpdateStatus = { current: string; latest?: string; available: boolean; downloaded: boolean; checking: boolean; error?: string; last_checked?: string };
+  type UpdateStatus = { current: string; latest?: string; available: boolean; downloaded: boolean; rollback: boolean; checking: boolean; error?: string; last_checked?: string };
 
   let baseUrl = $state('');
   let username = $state('');
@@ -136,10 +136,11 @@
     }
   }
 
-  async function installUpdate(): Promise<void> {
+  async function installUpdate(rollback = false): Promise<void> {
     error = '';
     try {
-      const response = await fetch('/api/local/update/install', { method: 'POST' });
+      const action = rollback ? 'rollback' : 'install';
+      const response = await fetch(`/api/local/update/${action}`, { method: 'POST' });
       if (!response.ok) {
         throw new Error(await response.text());
       }
@@ -1016,6 +1017,7 @@
         <div class="bot-actions">
           <span></span>
           <button class="quiet-action" onclick={() => void checkForUpdates()} disabled={updateStatus?.checking}>Check now</button>
+          {#if updateStatus?.rollback}<button class="quiet-action" onclick={() => void installUpdate(true)}>Roll back</button>{/if}
           {#if updateStatus?.downloaded}<button class="primary-action" onclick={() => void installUpdate()}>Restart and update</button>{/if}
         </div>
       </div>

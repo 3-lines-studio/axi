@@ -64,11 +64,6 @@ func startAxiDaemon() (string, error) {
 		return "", err
 	}
 	logPath := filepath.Join(logDirectory, "axi.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-	if err != nil {
-		return "", err
-	}
-	defer logFile.Close()
 	null, err := os.Open(os.DevNull)
 	if err != nil {
 		return "", err
@@ -77,8 +72,8 @@ func startAxiDaemon() (string, error) {
 	command := exec.Command(executable)
 	command.Args[0] = "axi-daemon"
 	command.Stdin = null
-	command.Stdout = logFile
-	command.Stderr = logFile
+	command.Stdout = null
+	command.Stderr = null
 	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
 		return "", err
