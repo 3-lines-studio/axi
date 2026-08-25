@@ -1,15 +1,13 @@
+//go:build !headless
+
 package main
 
 import (
-	"embed"
 	"log"
 	"os"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
-
-//go:embed all:frontend/dist
-var assets embed.FS
 
 func init() {
 	application.RegisterEvent[StreamEvent]("ax:event")

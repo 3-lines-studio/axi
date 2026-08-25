@@ -1,6 +1,17 @@
 # Axi
 
-Native and web graphical client for a remote Axis server.
+Native and web graphical interface for AX.
+
+## Install
+
+Install Axi and its core local runtime:
+
+```sh
+curl -fsSL https://ax.3lines.studio/install.sh | sh -s -- axi
+axi web
+```
+
+The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:8080` after startup.
 
 ## Requirements
 
@@ -26,10 +37,18 @@ Enter the Axis server URL and its Basic Auth credentials on the connection scree
 
 ## Web
 
-Build Axi, then run its web server:
+Build Axi, then start the local stack:
 
 ```sh
 wails3 build
+bin/axi web
+```
+
+When `AXI_AXIS_URL` is absent, Axi starts a private local Axis process and stops it on shutdown. Local state lives under `~/.local/share/axi`; set `AXI_HOME` to change it. The `axis` and `ax` binaries must be on `PATH`. On first start, Axi creates a default project for the current directory and an Assistant bot with `fsx`, `bashx`, `skillx`, and `attachx`. Set `OPENAI_API_KEY` or configure AX before starting Axi.
+
+To use an existing local or remote Axis instead:
+
+```sh
 AXI_AXIS_URL=http://127.0.0.1:8081 \
 AXI_AXIS_USERNAME=axbot \
 AXI_AXIS_PASSWORD=change-me \
