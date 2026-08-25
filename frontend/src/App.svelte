@@ -21,16 +21,20 @@
   type ChatItem = Message | ToolItem | ArtifactItem;
   type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[] };
   type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number };
+  type UpdateStatus = { current: string; latest?: string; available: boolean; downloaded: boolean; checking: boolean; error?: string; last_checked?: string };
 
   let baseUrl = $state('');
   let username = $state('');
   let password = $state('');
   let setupChecking = $state(browser);
+  let localMode = $state(false);
   let setupRequired = $state(false);
   let setupExisting = $state(false);
   let setupAPIKey = $state('');
   let setupModel = $state('gpt-4.1-mini');
   let setupBase = $state('');
+  let showUpdate = $state(false);
+  let updateStatus = $state<UpdateStatus>();
   let prompt = $state('');
   let connected = $state(false);
   let stopped = $state(false);
@@ -81,6 +85,7 @@
       try {
         const response = await fetch('/api/setup');
         if (response.ok) {
+          localMode = true;
           const setup = await response.json() as { configured: boolean };
           setupRequired = !setup.configured;
         }
@@ -99,6 +104,63 @@
     setupExisting = true;
     setupRequired = true;
     error = '';
+  }
+
+  async function openUpdates(): Promise<void> {
+    showUpdate = true;
+    error = '';
+    await loadUpdateStatus();
+  }
+
+  async function loadUpdateStatus(): Promise<void> {
+    const response = await fetch('/api/local/update');
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    updateStatus = await response.json() as UpdateStatus;
+  }
+
+  async function checkForUpdates(): Promise<void> {
+    error = '';
+    try {
+      const response = await fetch('/api/local/update/check', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      do {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await loadUpdateStatus();
+      } while (updateStatus?.checking);
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  async function installUpdate(): Promise<void> {
+    error = '';
+    try {
+      const response = await fetch('/api/local/update/install', { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      showUpdate = false;
+      stopped = true;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        try {
+          const health = await fetch('/health');
+          if (health.ok) {
+            location.reload();
+            return;
+          }
+        } catch {
+          continue;
+        }
+      }
+    } catch (cause) {
+      stopped = false;
+      error = messageFrom(cause);
+    }
   }
 
   async function quitAxi(): Promise<void> {
@@ -844,10 +906,11 @@
         </nav>
         <div class="sidebar-server">
           <span class="server-url">{browser ? 'Axis via Axi Web' : baseUrl}</span>
-          {#if browser}
+          {#if localMode}
             <button class="quiet server-action" onclick={openSetup} aria-label="Change provider" title="Change provider"><SlidersHorizontal aria-hidden="true" /><span>Model provider</span></button>
+            <button class="quiet server-action" onclick={() => void openUpdates()} aria-label="Axi updates" title="Axi updates"><ArrowDown aria-hidden="true" /><span>Updates</span></button>
             <button class="quiet server-action" onclick={() => void quitAxi()} aria-label="Quit Axi" title="Quit Axi"><Power aria-hidden="true" /><span>Quit Axi</span></button>
-          {:else}
+          {:else if !browser}
             <button class="quiet server-action" onclick={() => { connected = false; messages = []; }} aria-label="Change server" title="Change server"><SlidersHorizontal aria-hidden="true" /><span>Change server</span></button>
           {/if}
         </div>
@@ -933,6 +996,31 @@
       </section>
     </div>
   </main>
+
+  {#if showUpdate}
+    <div class="modal-backdrop" role="presentation">
+      <div class="update-dialog" role="dialog" aria-modal="true" aria-labelledby="update-title">
+        <div class="picker-head">
+          <div><h2 id="update-title">Axi updates</h2><p>Updates include Axi, Axis, AX, and the core tools.</p></div>
+          <button class="close" onclick={() => showUpdate = false} aria-label="Close"><X aria-hidden="true" /></button>
+        </div>
+        {#if updateStatus}
+          <div class="update-versions">
+            <span>Current<strong>{updateStatus.current}</strong></span>
+            <span>Latest<strong>{updateStatus.latest ?? 'Not checked'}</strong></span>
+          </div>
+          {#if updateStatus.error}<p class="error" role="alert">{updateStatus.error}</p>{/if}
+          <p class="update-state">{updateStatus.checking ? 'Checking for updates…' : updateStatus.downloaded ? 'Update downloaded and ready.' : updateStatus.available ? 'Downloading update…' : 'Axi is up to date.'}</p>
+        {/if}
+        {#if error}<p class="error" role="alert">{error}</p>{/if}
+        <div class="bot-actions">
+          <span></span>
+          <button class="quiet-action" onclick={() => void checkForUpdates()} disabled={updateStatus?.checking}>Check now</button>
+          {#if updateStatus?.downloaded}<button class="primary-action" onclick={() => void installUpdate()}>Restart and update</button>{/if}
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if editingConnector}
     <div class="modal-backdrop" role="presentation">

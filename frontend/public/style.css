@@ -2340,3 +2340,52 @@ footer:focus-within .hint {
 .setup-actions .primary {
   flex: 1;
 }
+
+.update-dialog {
+  width: min(460px, calc(100vw - 24px));
+  padding: 24px;
+  border: 1px solid #d8d8cf;
+  border-radius: var(--radius-large);
+  background: #fffffc;
+  box-shadow: 0 24px 80px rgba(24, 24, 20, 0.16);
+}
+
+.update-versions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 22px 0 16px;
+}
+
+.update-versions span {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f3f3ee;
+  color: #77776f;
+  font-size: 11px;
+}
+
+.update-versions strong {
+  color: #34342f;
+  font-size: 14px;
+}
+
+.update-state {
+  color: #707068;
+  font-size: 13px;
+}
+
+:root[data-theme='dark'] .update-dialog {
+  border-color: #41413b;
+  background: #232320;
+}
+
+:root[data-theme='dark'] .update-versions span {
+  background: #2d2d29;
+}
+
+:root[data-theme='dark'] .update-versions strong {
+  color: #deded7;
+}

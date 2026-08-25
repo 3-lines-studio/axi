@@ -25,6 +25,7 @@ import (
 
 type localAxis struct {
 	command  *exec.Cmd
+	home     string
 	username string
 	password string
 	url      string
@@ -68,6 +69,10 @@ func runWeb() error {
 		}
 	}
 	files := http.FileServer(http.FS(frontend))
+	address := os.Getenv("AXI_WEB_ADDRESS")
+	if address == "" {
+		address = "127.0.0.1:8080"
+	}
 	mux := http.NewServeMux()
 	quit := make(chan struct{}, 1)
 	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
@@ -75,8 +80,47 @@ func runWeb() error {
 		response.WriteHeader(http.StatusNoContent)
 	})
 	if local != nil {
+		updates := newUpdater(local.home)
+		go updates.check(false)
 		mux.HandleFunc("GET /api/setup", getLocalSetup)
 		mux.HandleFunc("POST /api/setup", saveLocalSetup)
+		mux.HandleFunc("GET /api/local/update", func(response http.ResponseWriter, request *http.Request) {
+			response.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(response).Encode(updates.currentStatus())
+		})
+		mux.HandleFunc("POST /api/local/update/check", func(response http.ResponseWriter, request *http.Request) {
+			updates.check(true)
+			response.WriteHeader(http.StatusNoContent)
+		})
+		mux.HandleFunc("POST /api/local/update/install", func(response http.ResponseWriter, request *http.Request) {
+			active, err := local.hasActiveRuns()
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusBadGateway)
+				return
+			}
+			if active {
+				http.Error(response, "wait for active runs to finish", http.StatusConflict)
+				return
+			}
+			browserURL, err := localBrowserURL(address)
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			logFile, err := os.OpenFile(filepath.Join(local.home, "logs", "axi.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			err = updates.startInstall(browserURL, logFile)
+			logFile.Close()
+			if err != nil {
+				http.Error(response, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			response.WriteHeader(http.StatusNoContent)
+			quit <- struct{}{}
+		})
 		mux.HandleFunc("POST /api/local/quit", func(response http.ResponseWriter, request *http.Request) {
 			select {
 			case quit <- struct{}{}:
@@ -98,10 +142,6 @@ func runWeb() error {
 		request.URL.Path = "/"
 		files.ServeHTTP(response, request)
 	})
-	address := os.Getenv("AXI_WEB_ADDRESS")
-	if address == "" {
-		address = "127.0.0.1:8080"
-	}
 	if err := validateWebAddress(address); err != nil {
 		return err
 	}
@@ -166,6 +206,9 @@ func startLocalAxis(ctx context.Context) (*localAxis, error) {
 	if err := os.MkdirAll(filepath.Join(home, "data"), 0700); err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(filepath.Join(home, "logs"), 0700); err != nil {
+		return nil, err
+	}
 	if err := bootstrapLocalConfig(home, config); err != nil {
 		return nil, err
 	}
@@ -204,6 +247,7 @@ func startLocalAxis(ctx context.Context) (*localAxis, error) {
 	}
 	local := &localAxis{
 		command:  command,
+		home:     home,
 		username: username,
 		password: password,
 		url:      "http://" + address,
@@ -472,6 +516,34 @@ func localDone(local *localAxis) <-chan error {
 		return make(chan error)
 	}
 	return local.done
+}
+
+func (local *localAxis) hasActiveRuns() (bool, error) {
+	request, err := http.NewRequest(http.MethodGet, local.url+"/api/runs", nil)
+	if err != nil {
+		return false, err
+	}
+	request.SetBasicAuth(local.username, local.password)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return false, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("Axis returned %s", response.Status)
+	}
+	var runs []struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&runs); err != nil {
+		return false, err
+	}
+	for _, run := range runs {
+		if run.Status == "running" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (local *localAxis) stop() {

@@ -15,7 +15,9 @@ The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`
 
 Running `axi` starts a detached local Axi when needed and opens it in the default browser. Later invocations reuse the same process. Axi and Axis keep running after the terminal and browser close. Logs are stored under `~/.local/share/axi/logs`.
 
-Update by running the install command again. Running binaries are replaced atomically. Uninstall the complete binary bundle with:
+Axi checks for updates once per day and downloads one version-pinned bundle containing Axi, Axis, AX, and the core tools. The Updates panel applies it when no runs are active, restarts Axi, verifies health, and restores the previous bundle if startup fails. Docker deployments remain image-managed and do not self-update.
+
+Manual updates remain available by running the install command again. Running binaries are replaced atomically. Uninstall the complete binary bundle with:
 
 ```sh
 curl -fsSL https://ax.3lines.studio/install.sh | sh -s -- uninstall axi
