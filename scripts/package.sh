@@ -6,6 +6,7 @@ rm -rf dist
 mkdir dist
 npm --prefix frontend ci
 npm --prefix frontend run build
+go test -tags headless .
 
 checksum() {
     for file in "$@"; do
