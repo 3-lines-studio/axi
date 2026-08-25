@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -68,6 +69,10 @@ func runWeb() error {
 	}
 	files := http.FileServer(http.FS(frontend))
 	mux := http.NewServeMux()
+	if local != nil {
+		mux.HandleFunc("GET /api/setup", getLocalSetup)
+		mux.HandleFunc("POST /api/setup", saveLocalSetup)
+	}
 	mux.Handle("/api/", proxy)
 	mux.Handle("/runs/", proxy)
 	mux.Handle("/sessions/", proxy)
@@ -239,7 +244,82 @@ func writePrivateJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
+	return writePrivateFile(path, append(data, '\n'))
+}
+
+type localSetup struct {
+	APIKey string `json:"api_key"`
+	Model  string `json:"model"`
+	Base   string `json:"base"`
+}
+
+func getLocalSetup(response http.ResponseWriter, request *http.Request) {
+	configured := os.Getenv("OPENAI_API_KEY") != ""
+	if !configured {
+		data, err := os.ReadFile(axConfigPath())
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			http.Error(response, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		text := string(data)
+		configured = strings.Contains(text, "api_key =") || strings.Contains(text, "base =")
+	}
+	response.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(response).Encode(map[string]bool{"configured": configured})
+}
+
+func saveLocalSetup(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("Content-Type") != "application/json" {
+		http.Error(response, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 64<<10)
+	var setup localSetup
+	if err := json.NewDecoder(request.Body).Decode(&setup); err != nil {
+		http.Error(response, "invalid setup", http.StatusBadRequest)
+		return
+	}
+	setup.APIKey = strings.TrimSpace(setup.APIKey)
+	setup.Model = strings.TrimSpace(setup.Model)
+	setup.Base = strings.TrimRight(strings.TrimSpace(setup.Base), "/")
+	if setup.APIKey == "" && setup.Base == "" {
+		http.Error(response, "API key or base URL is required", http.StatusBadRequest)
+		return
+	}
+	var lines []string
+	if setup.APIKey != "" {
+		lines = append(lines, "api_key = "+strconv.Quote(setup.APIKey))
+	}
+	if setup.Model != "" {
+		lines = append(lines, "model = "+strconv.Quote(setup.Model))
+	}
+	if setup.Base != "" {
+		lines = append(lines, "base = "+strconv.Quote(setup.Base))
+	}
+	path := axConfigPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := writePrivateFile(path, []byte(strings.Join(lines, "\n")+"\n")); err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func axConfigPath() string {
+	config := os.Getenv("XDG_CONFIG_HOME")
+	if config == "" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			config = filepath.Join(home, ".config")
+		}
+	}
+	return filepath.Join(config, "ax", "config")
+}
+
+func writePrivateFile(path string, data []byte) error {
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".axi-*")
 	if err != nil {
 		return err

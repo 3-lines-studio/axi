@@ -2310,3 +2310,23 @@ footer:focus-within .hint {
     font-size: 11px;
   }
 }
+
+.connect-card .optional {
+  margin-left: 6px;
+  color: #929289;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.connect-card .setup-note {
+  margin: -8px 0 0;
+  text-align: center;
+  font-size: 12px;
+}
+
+.setup-loading {
+  justify-items: center;
+  text-align: center;
+}

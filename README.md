@@ -11,7 +11,7 @@ curl -fsSL https://ax.3lines.studio/install.sh | sh -s -- axi
 axi web
 ```
 
-The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:8080` after startup.
+The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:8080` after startup. On first launch, Axi asks for an OpenAI API key, model, and optional compatible endpoint. It stores the AX configuration locally with mode `0600` and never returns the saved key to the browser.
 
 ## Requirements
 

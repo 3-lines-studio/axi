@@ -25,6 +25,11 @@
   let baseUrl = $state('');
   let username = $state('');
   let password = $state('');
+  let setupChecking = $state(browser);
+  let setupRequired = $state(false);
+  let setupAPIKey = $state('');
+  let setupModel = $state('gpt-4.1-mini');
+  let setupBase = $state('');
   let prompt = $state('');
   let connected = $state(false);
   let darkMode = $state(false);
@@ -71,9 +76,44 @@
     username = localStorage.getItem('ax-username') ?? '';
     await subscribe(receive);
     if (browser) {
-      await connect();
+      try {
+        const response = await fetch('/api/setup');
+        if (response.ok) {
+          const setup = await response.json() as { configured: boolean };
+          setupRequired = !setup.configured;
+        }
+      } catch {
+        setupRequired = false;
+      } finally {
+        setupChecking = false;
+      }
+      if (!setupRequired) {
+        await connect();
+      }
     }
   });
+
+  async function saveSetup(): Promise<void> {
+    error = '';
+    loading = true;
+    try {
+      const response = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: setupAPIKey, model: setupModel, base: setupBase })
+      });
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      setupAPIKey = '';
+      setupRequired = false;
+      await connect();
+    } catch (cause) {
+      error = messageFrom(cause);
+    } finally {
+      loading = false;
+    }
+  }
 
   function toggleTheme(): void {
     darkMode = !darkMode;
@@ -666,7 +706,27 @@
   }
 </script>
 
-{#if !connected}
+{#if setupChecking}
+  <main class="connect-shell">
+    <div class="connect-card setup-loading"><div class="mark">AX</div><p>Starting Axi…</p></div>
+  </main>
+{:else if setupRequired}
+  <main class="connect-shell">
+    <form class="connect-card" onsubmit={(event) => { event.preventDefault(); void saveSetup(); }}>
+      <button class="theme-toggle connect-theme" type="button" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
+        {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
+      </button>
+      <div class="mark">AX</div>
+      <div><h1>Welcome to Axi</h1><p>Connect your model provider to start chatting.</p></div>
+      <label>OpenAI API key<input bind:value={setupAPIKey} type="password" autocomplete="off" placeholder="sk-…" required /></label>
+      <label>Model<input bind:value={setupModel} placeholder="gpt-4.1-mini" /></label>
+      <label>Custom base URL <span class="optional">Optional</span><input bind:value={setupBase} type="url" inputmode="url" placeholder="https://api.openai.com/v1" /></label>
+      {#if error}<p class="error" role="alert">{error}</p>{/if}
+      <button class="primary" type="submit" disabled={loading || !setupAPIKey.trim()}>{loading ? 'Saving…' : 'Start chatting'}</button>
+      <p class="setup-note">Your key stays on this machine.</p>
+    </form>
+  </main>
+{:else if !connected}
   <main class="connect-shell">
     <form class="connect-card" onsubmit={(event) => { event.preventDefault(); void connect(); }}>
       <button class="theme-toggle connect-theme" type="button" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>

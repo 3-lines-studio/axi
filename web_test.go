@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,6 +70,50 @@ func TestBootstrapLocalConfig(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("unexpected mode: %o", info.Mode().Perm())
+	}
+}
+
+func TestLocalSetup(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/setup", nil)
+	response := httptest.NewRecorder()
+	getLocalSetup(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"configured\":false}\n" {
+		t.Fatalf("unexpected status: %d %s", response.Code, response.Body.String())
+	}
+
+	body := bytes.NewBufferString(`{"api_key":"secret","model":"model","base":"https://example.com/v1/"}`)
+	request = httptest.NewRequest(http.MethodPost, "/api/setup", body)
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	saveLocalSetup(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status: %d %s", response.Code, response.Body.String())
+	}
+	data, err := os.ReadFile(filepath.Join(config, "ax", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "api_key = \"secret\"\nmodel = \"model\"\nbase = \"https://example.com/v1\"\n"
+	if string(data) != want {
+		t.Fatalf("unexpected config: %s", data)
+	}
+	info, err := os.Stat(filepath.Join(config, "ax", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("unexpected mode: %o", info.Mode().Perm())
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/setup", nil)
+	response = httptest.NewRecorder()
+	getLocalSetup(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "{\"configured\":true}\n" {
+		t.Fatalf("unexpected status: %d %s", response.Code, response.Body.String())
 	}
 }
 
