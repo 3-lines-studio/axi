@@ -27,6 +27,7 @@
   let password = $state('');
   let setupChecking = $state(browser);
   let setupRequired = $state(false);
+  let setupExisting = $state(false);
   let setupAPIKey = $state('');
   let setupModel = $state('gpt-4.1-mini');
   let setupBase = $state('');
@@ -92,6 +93,12 @@
       }
     }
   });
+
+  function openSetup(): void {
+    setupExisting = true;
+    setupRequired = true;
+    error = '';
+  }
 
   async function saveSetup(): Promise<void> {
     error = '';
@@ -718,11 +725,14 @@
       </button>
       <div class="mark">AX</div>
       <div><h1>Welcome to Axi</h1><p>Connect your model provider to start chatting.</p></div>
-      <label>OpenAI API key<input bind:value={setupAPIKey} type="password" autocomplete="off" placeholder="sk-…" required /></label>
+      <label>API key <span class="optional">Optional for local providers</span><input bind:value={setupAPIKey} type="password" autocomplete="off" placeholder="sk-…" /></label>
       <label>Model<input bind:value={setupModel} placeholder="gpt-4.1-mini" /></label>
       <label>Custom base URL <span class="optional">Optional</span><input bind:value={setupBase} type="url" inputmode="url" placeholder="https://api.openai.com/v1" /></label>
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <button class="primary" type="submit" disabled={loading || !setupAPIKey.trim()}>{loading ? 'Saving…' : 'Start chatting'}</button>
+      <div class="setup-actions">
+        {#if setupExisting}<button class="quiet-action" type="button" onclick={() => setupRequired = false}>Cancel</button>{/if}
+        <button class="primary" type="submit" disabled={loading || (!setupAPIKey.trim() && !setupBase.trim())}>{loading ? 'Saving…' : setupExisting ? 'Save provider' : 'Start chatting'}</button>
+      </div>
       <p class="setup-note">Your key stays on this machine.</p>
     </form>
   </main>
@@ -817,7 +827,9 @@
         </nav>
         <div class="sidebar-server">
           <span class="server-url">{browser ? 'Axis via Axi Web' : baseUrl}</span>
-          {#if !browser}
+          {#if browser}
+            <button class="quiet server-action" onclick={openSetup} aria-label="Change provider" title="Change provider"><SlidersHorizontal aria-hidden="true" /><span>Model provider</span></button>
+          {:else}
             <button class="quiet server-action" onclick={() => { connected = false; messages = []; }} aria-label="Change server" title="Change server"><SlidersHorizontal aria-hidden="true" /><span>Change server</span></button>
           {/if}
         </div>

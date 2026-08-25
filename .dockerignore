@@ -1,0 +1,8 @@
+.git
+.task
+bin
+dist
+frontend/dist
+frontend/node_modules
+frontend/.svelte-check
+build

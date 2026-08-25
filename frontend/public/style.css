@@ -2330,3 +2330,13 @@ footer:focus-within .hint {
   justify-items: center;
   text-align: center;
 }
+
+.setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.setup-actions .primary {
+  flex: 1;
+}

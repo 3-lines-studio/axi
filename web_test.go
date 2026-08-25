@@ -117,6 +117,21 @@ func TestLocalSetup(t *testing.T) {
 	}
 }
 
+func TestValidateWebAddress(t *testing.T) {
+	for _, address := range []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} {
+		if err := validateWebAddress(address); err != nil {
+			t.Fatalf("%s: %v", address, err)
+		}
+	}
+	if err := validateWebAddress("0.0.0.0:8080"); err == nil {
+		t.Fatal("public address accepted")
+	}
+	t.Setenv("AXI_ALLOW_PUBLIC", "true")
+	if err := validateWebAddress("0.0.0.0:8080"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBootstrapLocalConfigPreservesExistingConfig(t *testing.T) {
 	home := t.TempDir()
 	config := filepath.Join(home, "config")

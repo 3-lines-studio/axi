@@ -14,11 +14,19 @@ func init() {
 }
 
 func main() {
-	if len(os.Args) == 2 && os.Args[1] == "web" {
-		if err := runWeb(); err != nil {
-			log.Fatal(err)
+	if len(os.Args) == 2 {
+		switch os.Args[1] {
+		case "web":
+			if err := runWeb(); err != nil {
+				log.Fatal(err)
+			}
+			return
+		case "doctor":
+			if err := runDoctor(); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
-		return
 	}
 
 	ax := NewAXService()

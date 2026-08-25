@@ -9,11 +9,24 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 2 || os.Args[1] != "web" {
-		fmt.Fprintln(os.Stderr, "usage: axi web")
+	command := "web"
+	if len(os.Args) == 2 {
+		command = os.Args[1]
+	} else if len(os.Args) > 2 {
+		fmt.Fprintln(os.Stderr, "usage: axi [web|doctor]")
 		os.Exit(2)
 	}
-	if err := runWeb(); err != nil {
-		log.Fatal(err)
+	switch command {
+	case "web":
+		if err := runWeb(); err != nil {
+			log.Fatal(err)
+		}
+	case "doctor":
+		if err := runDoctor(); err != nil {
+			log.Fatal(err)
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "usage: axi [web|doctor]")
+		os.Exit(2)
 	}
 }

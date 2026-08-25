@@ -69,6 +69,9 @@ func runWeb() error {
 	}
 	files := http.FileServer(http.FS(frontend))
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	})
 	if local != nil {
 		mux.HandleFunc("GET /api/setup", getLocalSetup)
 		mux.HandleFunc("POST /api/setup", saveLocalSetup)
@@ -89,6 +92,9 @@ func runWeb() error {
 	address := os.Getenv("AXI_WEB_ADDRESS")
 	if address == "" {
 		address = "127.0.0.1:8080"
+	}
+	if err := validateWebAddress(address); err != nil {
+		return err
 	}
 	server := &http.Server{Addr: address, Handler: mux}
 	serverError := make(chan error, 1)
@@ -120,13 +126,9 @@ func startLocalAxis(ctx context.Context) (*localAxis, error) {
 	if _, err := exec.LookPath("ax"); err != nil {
 		return nil, errors.New("AX is not installed")
 	}
-	home := os.Getenv("AXI_HOME")
-	if home == "" {
-		userHome, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		home = filepath.Join(userHome, ".local", "share", "axi")
+	home, err := axiHome()
+	if err != nil {
+		return nil, err
 	}
 	config := filepath.Join(home, "config")
 	if err := os.MkdirAll(filepath.Join(config, "bots"), 0700); err != nil {
@@ -254,18 +256,28 @@ type localSetup struct {
 }
 
 func getLocalSetup(response http.ResponseWriter, request *http.Request) {
-	configured := os.Getenv("OPENAI_API_KEY") != ""
-	if !configured {
-		data, err := os.ReadFile(axConfigPath())
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			http.Error(response, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		text := string(data)
-		configured = strings.Contains(text, "api_key =") || strings.Contains(text, "base =")
+	configured, err := providerConfigured()
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	response.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(response).Encode(map[string]bool{"configured": configured})
+}
+
+func providerConfigured() (bool, error) {
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		return true, nil
+	}
+	data, err := os.ReadFile(axConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	text := string(data)
+	return strings.Contains(text, "api_key =") || strings.Contains(text, "base ="), nil
 }
 
 func saveLocalSetup(response http.ResponseWriter, request *http.Request) {
@@ -338,6 +350,20 @@ func writePrivateFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+func validateWebAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid AXI_WEB_ADDRESS: %w", err)
+	}
+	if host == "localhost" || net.ParseIP(host).IsLoopback() {
+		return nil
+	}
+	if os.Getenv("AXI_ALLOW_PUBLIC") == "true" {
+		return nil
+	}
+	return errors.New("public Axi Web requires AXI_ALLOW_PUBLIC=true and an authentication proxy")
 }
 
 func availableAddress() (string, error) {
