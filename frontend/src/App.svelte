@@ -2,21 +2,25 @@
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { ArrowUp, ChevronRight, Copy, FileText, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Bot as BotIcon, ChevronRight, Copy, FileText, Folder, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, Paperclip, Plug, Plus, Settings, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
   import { browser, client, subscribe } from './client';
 
   type Project = { id: string; name: string };
+  type Bot = { id: string; name: string; prompt: string; tools: string[]; workspace_root: string; skill_root?: string; model?: string };
+  type Connector = { id: string; name: string; type: string; bot_id: string; project_id: string; enabled: boolean; status?: string; error?: string; restarts?: number };
   type DirectoryRoot = { name: string; path: string };
   type Directory = { name: string; path: string; kind?: string; registered: boolean };
   type DirectoryResponse = { path?: string; parent?: string; roots?: DirectoryRoot[]; directories?: Directory[] };
-  type Session = { id: string; project_id: string; title: string; updated_at: string };
+  type Session = { id: string; project_id: string; bot_id: string; title: string; updated_at: string };
   type StoredToolCall = { id: string; name: string; arguments: string };
   type StoredMessage = { role: string; content: string; tool_calls?: StoredToolCall[]; tool_call_id?: string };
+  type StoredArtifact = { id: string; name: string; media_type: string; size: number };
   type Message = { kind: 'message'; role: 'user' | 'assistant'; content: string };
   type ToolItem = { kind: 'tool'; id: string; name: string; arguments: string; output: string; status: 'running' | 'done' | 'failed'; expanded: boolean };
-  type ChatItem = Message | ToolItem;
-  type SessionDetail = Session & { messages: StoredMessage[] };
-  type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string };
+  type ArtifactItem = { kind: 'artifact'; id: string; name: string; media_type: string; size: number; session_id: string; source?: string };
+  type ChatItem = Message | ToolItem | ArtifactItem;
+  type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[] };
+  type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number };
 
   let baseUrl = $state('');
   let username = $state('');
@@ -29,6 +33,7 @@
   let sidebarOpen = $state(false);
   let pickerOpen = $state(false);
   let pickerLoading = $state(false);
+  let pickerTarget: 'project' | 'workspace' | 'skills' = $state('project');
   let directoryPath = $state('');
   let directoryParent = $state('');
   let directoryRoots: DirectoryRoot[] = $state([]);
@@ -39,6 +44,12 @@
   let pendingProjectDelete = $state<Project>();
   let error = $state('');
   let projects: Project[] = $state([]);
+  let bots: Bot[] = $state([]);
+  let botId = $state('');
+  let editingBot = $state<Bot>();
+  let connectors: Connector[] = $state([]);
+  let editingConnector = $state<Connector>();
+  let botTools = $state('');
   let sessionsByProject: Record<string, Session[]> = $state({});
   let expandedProjects: string[] = $state([]);
   let loadedProjects: string[] = $state([]);
@@ -48,6 +59,7 @@
   let sessionId = $state('');
   let transcript = $state<HTMLElement>();
   let composer = $state<HTMLTextAreaElement>();
+  let atBottom = $state(true);
 
   onMount(async () => {
     if (/Linux/.test(navigator.userAgent) && !/(Chrome|Chromium)/.test(navigator.userAgent)) {
@@ -79,6 +91,9 @@
     try {
       await client.Connect(baseUrl, username, password);
       projects = await client.Projects() as Project[];
+      bots = await client.Bots() as Bot[];
+      connectors = await client.Connectors() as Connector[];
+      botId = bots.some((bot) => bot.id === localStorage.getItem('ax-bot')) ? localStorage.getItem('ax-bot') ?? '' : bots[0]?.id ?? '';
       const activeRuns = await client.ResumeRuns() as { session_id: string }[];
       runningSessions = activeRuns.map((run) => run.session_id);
       localStorage.setItem('ax-url', baseUrl.trim());
@@ -129,7 +144,8 @@
     localStorage.setItem('ax-expanded-projects', JSON.stringify(expandedProjects));
   }
 
-  async function openPicker(): Promise<void> {
+  async function openPicker(target: 'project' | 'workspace' | 'skills' = 'project'): Promise<void> {
+    pickerTarget = target;
     pickerOpen = true;
     directoryPath = '';
     directoryParent = '';
@@ -157,6 +173,18 @@
     } finally {
       pickerLoading = false;
     }
+  }
+
+  function chooseBotDirectory(): void {
+    if (!editingBot || !directoryPath) {
+      return;
+    }
+    if (pickerTarget === 'workspace') {
+      editingBot.workspace_root = directoryPath;
+    } else {
+      editingBot.skill_root = directoryPath;
+    }
+    pickerOpen = false;
   }
 
   async function addProject(): Promise<void> {
@@ -190,13 +218,93 @@
     return directories.filter((item) => item.name.toLowerCase().includes(filter));
   }
 
+  function selectBot(id: string): void {
+    if (botId === id) {
+      return;
+    }
+    botId = id;
+    sessionId = '';
+    messages = [];
+    localStorage.setItem('ax-bot', id);
+  }
+
+  function editBot(item?: Bot): void {
+    editingBot = item ? { ...item, tools: [...item.tools] } : { id: '', name: '', prompt: '', tools: [], workspace_root: '' };
+    botTools = item?.tools.join(' ') ?? '';
+  }
+
+  async function saveBot(): Promise<void> {
+    if (!editingBot) {
+      return;
+    }
+    error = '';
+    try {
+      const item = await client.SaveBot({ ...editingBot, tools: botTools.split(/\s+/).filter(Boolean) }) as Bot;
+      const index = bots.findIndex((bot) => bot.id === item.id);
+      bots = index === -1 ? [...bots, item] : bots.map((bot) => bot.id === item.id ? item : bot);
+      selectBot(item.id);
+      editingBot = undefined;
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  async function deleteBot(): Promise<void> {
+    if (!editingBot?.id) {
+      return;
+    }
+    error = '';
+    try {
+      await client.DeleteBot(editingBot.id);
+      bots = bots.filter((bot) => bot.id !== editingBot?.id);
+      if (botId === editingBot.id) {
+        selectBot(bots[0]?.id ?? '');
+      }
+      editingBot = undefined;
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  function editConnector(item?: Connector): void {
+    editingConnector = item ? { ...item } : { id: '', name: '', type: 'slack', bot_id: botId || bots[0]?.id || '', project_id: projectId || projects[0]?.id || '', enabled: false };
+  }
+
+  async function saveConnector(): Promise<void> {
+    if (!editingConnector) {
+      return;
+    }
+    error = '';
+    try {
+      const item = await client.SaveConnector(editingConnector) as Connector;
+      connectors = connectors.some((connector) => connector.id === item.id) ? connectors.map((connector) => connector.id === item.id ? item : connector) : [...connectors, item];
+      editingConnector = undefined;
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  async function deleteConnector(): Promise<void> {
+    if (!editingConnector?.id) {
+      return;
+    }
+    error = '';
+    try {
+      await client.DeleteConnector(editingConnector.id);
+      connectors = connectors.filter((connector) => connector.id !== editingConnector?.id);
+      editingConnector = undefined;
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
   async function newSession(targetProject = projectId): Promise<void> {
     if (!targetProject) {
       return;
     }
     error = '';
     try {
-      const item = await client.NewSession(targetProject) as SessionDetail;
+      const item = await client.NewSession(targetProject, botId) as SessionDetail;
       projectId = targetProject;
       sessionId = item.id;
       messages = [];
@@ -279,14 +387,18 @@
     try {
       const item = await client.OpenSession(id) as SessionDetail;
       projectId = item.project_id;
+      botId = item.bot_id;
       sessionId = item.id;
       const restored = restoreTranscript(item.messages ?? []);
+      const restoredArtifacts = (item.artifacts ?? []).map((artifact): ArtifactItem => ({ kind: 'artifact', ...artifact, session_id: item.id, source: browser ? artifactPath(item.id, artifact.id) : undefined }));
+      restored.push(...restoredArtifacts);
+      restoredArtifacts.forEach((artifact) => void prepareArtifact(artifact));
       const cached = transcriptsBySession[id];
       messages = cached && isRunning(id) ? cached : restored;
       transcriptsBySession[id] = messages;
       localStorage.setItem('ax-project', item.project_id);
       sidebarOpen = false;
-      await scrollToEnd();
+      await scrollToEnd(true);
     } catch (cause) {
       error = messageFrom(cause);
     } finally {
@@ -313,7 +425,7 @@
     error = '';
     runningSessions = [...runningSessions, targetSession];
     transcriptsBySession[targetSession] = messages;
-    await scrollToEnd();
+    await scrollToEnd(true);
 
     try {
       await client.Send(targetSession, text);
@@ -381,6 +493,15 @@
       }
       return;
     }
+    if (event.type === 'artifact' && event.id && event.name) {
+      const artifact: ArtifactItem = { kind: 'artifact', id: event.id, name: event.name, media_type: event.media_type ?? 'application/octet-stream', size: event.size ?? 0, session_id: targetSession, source: browser ? artifactPath(targetSession, event.id) : undefined };
+      target.push(artifact);
+      void prepareArtifact(artifact);
+      if (targetSession === sessionId) {
+        void scrollToEnd();
+      }
+      return;
+    }
     if (event.type === 'failure' && targetSession === sessionId) {
       error = event.text ?? 'AX failed';
     }
@@ -394,6 +515,36 @@
       if (targetSession === sessionId) {
         void tick().then(() => composer?.focus());
       }
+    }
+  }
+
+  function artifactPath(session: string, artifact: string): string {
+    return `/api/sessions/${encodeURIComponent(session)}/artifacts/${encodeURIComponent(artifact)}`;
+  }
+
+  async function prepareArtifact(item: ArtifactItem): Promise<void> {
+    if (item.source || !item.media_type.startsWith('image/')) {
+      return;
+    }
+    try {
+      item.source = await client.ArtifactSource(item.session_id, item.id);
+      if (item.session_id === sessionId) {
+        messages = [...messages];
+      }
+    } catch (cause) {
+      error = messageFrom(cause);
+    }
+  }
+
+  async function downloadArtifact(item: ArtifactItem): Promise<void> {
+    try {
+      const source = item.source ?? await client.ArtifactSource(item.session_id, item.id);
+      const link = document.createElement('a');
+      link.href = source;
+      link.download = item.name;
+      link.click();
+    } catch (cause) {
+      error = messageFrom(cause);
     }
   }
 
@@ -462,16 +613,56 @@
   }
 
   function render(text: string): string {
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    const clean = DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    if (!clean.includes('<table')) {
+      return clean;
+    }
+    const document = new DOMParser().parseFromString(clean, 'text/html');
+    for (const table of document.querySelectorAll('table')) {
+      const rows = [...table.querySelectorAll('tbody tr')];
+      const columns = table.querySelectorAll('thead th').length;
+      for (let column = 0; column < columns; column++) {
+        const cells = rows.map((row) => row.children.item(column)).filter((cell): cell is Element => cell !== null);
+        const values = cells.map((cell) => cell.textContent?.trim() ?? '').filter((value) => value && value !== '—' && value !== '-');
+        if (values.length > 0 && values.every(isNumericValue)) {
+          table.querySelector(`thead th:nth-child(${column + 1})`)?.classList.add('numeric');
+          cells.forEach((cell) => cell.classList.add('numeric'));
+        }
+      }
+      table.querySelectorAll('thead th').forEach((cell) => cell.setAttribute('scope', 'col'));
+      const wrapper = document.createElement('div');
+      wrapper.className = 'table-scroll';
+      wrapper.tabIndex = 0;
+      wrapper.setAttribute('role', 'region');
+      wrapper.setAttribute('aria-label', 'Scrollable table');
+      table.replaceWith(wrapper);
+      wrapper.append(table);
+    }
+    return document.body.innerHTML;
+  }
+
+  function isNumericValue(value: string): boolean {
+    return /^\(?[+−-]?(?:[$€£¥]\s*)?(?:\d{1,3}(?:[,\s]\d{3})*|\d+)(?:\.\d+)?(?:\s*%)?\)?$/.test(value);
   }
 
   function messageFrom(cause: unknown): string {
     return cause instanceof Error ? cause.message : String(cause);
   }
 
-  async function scrollToEnd(): Promise<void> {
+  function trackScroll(): void {
+    if (!transcript) {
+      return;
+    }
+    atBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 80;
+  }
+
+  async function scrollToEnd(force = false): Promise<void> {
+    if (!force && !atBottom) {
+      return;
+    }
     await tick();
     transcript?.scrollTo({ top: transcript.scrollHeight });
+    atBottom = true;
   }
 </script>
 
@@ -508,6 +699,28 @@
           <button class="theme-toggle" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
             {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
           </button>
+        </div>
+        <div class="bot-selector">
+          <div class="sidebar-label"><span>Bots</span><button onclick={() => editBot()} aria-label="New bot" title="New bot"><Plus aria-hidden="true" /></button></div>
+          {#each bots as bot}
+            <div class="bot-row" class:active={bot.id === botId}>
+              <button class="bot-select" onclick={() => selectBot(bot.id)}><BotIcon aria-hidden="true" /><span>{bot.name}</span></button>
+              <button class="bot-edit" onclick={() => editBot(bot)} aria-label={`Edit ${bot.name}`} title="Edit bot"><Settings aria-hidden="true" /></button>
+            </div>
+          {:else}
+            <p>No bots configured</p>
+          {/each}
+        </div>
+        <div class="bot-selector connector-selector">
+          <div class="sidebar-label"><span>Interfaces</span><button onclick={() => editConnector()} aria-label="New interface" title="New interface"><Plus aria-hidden="true" /></button></div>
+          {#each connectors as connector}
+            <div class="bot-row">
+              <button class="bot-select" onclick={() => editConnector(connector)}><Plug aria-hidden="true" /><span>{connector.name}</span></button>
+              <i class:running={connector.status === 'running'} title={connector.error || connector.status}></i>
+            </div>
+          {:else}
+            <p>No interfaces configured</p>
+          {/each}
         </div>
         <button class="add-project top" onclick={() => void openPicker()}>+ Add directory</button>
         <nav class="projects">
@@ -552,7 +765,7 @@
       {#if sidebarOpen}<button class="scrim" onclick={() => sidebarOpen = false} aria-label="Close sessions"></button>{/if}
 
       <section class="chat">
-        <div class="transcript" bind:this={transcript} aria-live="polite">
+        <div class="transcript" bind:this={transcript} onscroll={trackScroll} aria-live="polite">
           {#if messages.length === 0 && !loading}
             <div class="empty"><h1>What can I help with?</h1><p>Messages run in the selected project.</p></div>
           {/if}
@@ -564,8 +777,18 @@
                   {#if item.content}{@html render(item.content)}{:else}<span class="cursor"></span>{/if}
                 </div>
               </article>
+            {:else if item.kind === 'artifact'}
+              <div class="artifact-card" class:image={item.media_type.startsWith('image/')}>
+                {#if item.media_type.startsWith('image/') && item.source}
+                  <img src={item.source} alt={item.name} />
+                {:else}
+                  <Paperclip aria-hidden="true" />
+                {/if}
+                <span><strong>{item.name}</strong><small>{item.media_type} · {Math.ceil(item.size / 1024)} KB</small></span>
+                <button onclick={() => void downloadArtifact(item)}>Download</button>
+              </div>
             {:else}
-              <div class="tool-card" class:failed={item.status === 'failed'} class:running={item.status === 'running'}>
+              <div class="tool-card" class:failed={item.status === 'failed'} class:running={item.status === 'running'} class:expanded={item.expanded}>
                 <button class="tool-head" onclick={() => item.expanded = !item.expanded} aria-expanded={item.expanded}>
                   <span class="tool-icon">
                     {#if item.name === 'bash' || item.name === 'bashx'}
@@ -601,6 +824,10 @@
           {/each}
         </div>
 
+        {#if !atBottom}
+          <button class="jump-latest" onclick={() => void scrollToEnd(true)} aria-label="Jump to latest"><ArrowDown aria-hidden="true" /><span>Latest</span></button>
+        {/if}
+
         <footer>
           {#if error}<p class="error footer-error" role="alert">{error}</p>{/if}
           <div class="composer">
@@ -616,6 +843,59 @@
       </section>
     </div>
   </main>
+
+  {#if editingConnector}
+    <div class="modal-backdrop" role="presentation">
+      <div class="bot-dialog connector-dialog" role="dialog" aria-modal="true" aria-labelledby="connector-title">
+        <div class="picker-head">
+          <div><h2 id="connector-title">{editingConnector.id ? 'Edit interface' : 'New interface'}</h2><p>Axis supervises enabled interfaces.</p></div>
+          <button class="close" onclick={() => editingConnector = undefined} aria-label="Close"><X aria-hidden="true" /></button>
+        </div>
+        <div class="bot-form">
+          <label>Name<input bind:value={editingConnector.name} maxlength="80" /></label>
+          <label>Type<select bind:value={editingConnector.type}><option value="slack">Slack</option></select></label>
+          <label>Bot<select bind:value={editingConnector.bot_id}>{#each bots as bot}<option value={bot.id}>{bot.name}</option>{/each}</select></label>
+          <label>Project<select bind:value={editingConnector.project_id}>{#each projects as project}<option value={project.id}>{project.name}</option>{/each}</select></label>
+          <label class="connector-enabled"><input bind:checked={editingConnector.enabled} type="checkbox" /> Enabled</label>
+          {#if editingConnector.id}<p class="connector-secret">Credentials: ~/.config/axis/connectors/{editingConnector.id}.env</p>{/if}
+          {#if editingConnector.error}<p class="error">{editingConnector.error}</p>{/if}
+          {#if error}<p class="error" role="alert">{error}</p>{/if}
+          <div class="bot-actions">
+            {#if editingConnector.id}<button class="delete-action" onclick={() => void deleteConnector()}>Delete interface</button>{/if}
+            <span></span>
+            <button class="quiet-action" onclick={() => editingConnector = undefined}>Cancel</button>
+            <button class="primary-action" onclick={() => void saveConnector()} disabled={!editingConnector.name.trim() || !editingConnector.bot_id || !editingConnector.project_id}>Save interface</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if editingBot}
+    <div class="modal-backdrop" role="presentation">
+      <div class="bot-dialog" role="dialog" aria-modal="true" aria-labelledby="bot-title">
+        <div class="picker-head">
+          <div><h2 id="bot-title">{editingBot.id ? 'Edit bot' : 'New bot'}</h2><p>Changes apply to all of this bot’s chats.</p></div>
+          <button class="close" onclick={() => editingBot = undefined} aria-label="Close"><X aria-hidden="true" /></button>
+        </div>
+        <div class="bot-form">
+          <label>Name<input bind:value={editingBot.name} maxlength="80" /></label>
+          <label>System prompt<textarea bind:value={editingBot.prompt} rows="8"></textarea></label>
+          <label>Workspace root<span class="path-field"><input bind:value={editingBot.workspace_root} readonly /><button onclick={() => void openPicker('workspace')}>Choose</button></span></label>
+          <label>Skill root<span class="path-field"><input bind:value={editingBot.skill_root} readonly /><button onclick={() => void openPicker('skills')}>Choose</button></span></label>
+          <label>Tools<input bind:value={botTools} placeholder="fsx bashx skillx" /></label>
+          <label>Model<input bind:value={editingBot.model} placeholder="Use Axis default" /></label>
+          {#if error}<p class="error" role="alert">{error}</p>{/if}
+          <div class="bot-actions">
+            {#if editingBot.id}<button class="delete-action" onclick={() => void deleteBot()}>Delete bot</button>{/if}
+            <span></span>
+            <button class="quiet-action" onclick={() => editingBot = undefined}>Cancel</button>
+            <button class="primary-action" onclick={() => void saveBot()} disabled={!editingBot.name.trim() || !editingBot.prompt.trim() || !editingBot.workspace_root.trim()}>Save bot</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if pendingProjectDelete}
     <div class="modal-backdrop delete-backdrop" role="presentation">
@@ -657,7 +937,7 @@
     <div class="modal-backdrop" role="presentation">
       <div class="directory-picker" role="dialog" aria-modal="true" aria-labelledby="picker-title">
         <div class="picker-head">
-          <div><h2 id="picker-title">Add directory</h2><p>{directoryPath || 'Choose a location'}</p></div>
+          <div><h2 id="picker-title">{pickerTarget === 'project' ? 'Add directory' : pickerTarget === 'workspace' ? 'Choose workspace' : 'Choose skill root'}</h2><p>{directoryPath || 'Choose a location'}</p></div>
           <button class="close" onclick={() => pickerOpen = false} aria-label="Close"><X aria-hidden="true" /></button>
         </div>
 
@@ -668,13 +948,13 @@
         <div class="directory-list">
           {#if !directoryPath}
             {#each directoryRoots as root}
-              <button onclick={() => void browse(root.path)}><span class="folder-icon">□</span><span><strong>{root.name}</strong><small>{root.path}</small></span><b>›</b></button>
+              <button onclick={() => void browse(root.path)}><span class="folder-icon"><Folder aria-hidden="true" /></span><span><strong>{root.name}</strong><small>{root.path}</small></span><b>›</b></button>
             {/each}
           {:else}
             {#if directoryParent}<button onclick={() => void browse(directoryParent)}><span class="folder-icon"><FolderUp aria-hidden="true" /></span><span><strong>Parent directory</strong></span></button>{/if}
             {#each visibleDirectories() as directory}
               <button onclick={() => void browse(directory.path)}>
-                <span class="folder-icon">□</span>
+                <span class="folder-icon"><Folder aria-hidden="true" /></span>
                 <span><strong>{directory.name}</strong><small>{directory.registered ? 'Already added' : directory.kind ?? ''}</small></span>
                 <b>›</b>
               </button>
@@ -685,11 +965,15 @@
 
         {#if directoryPath}
           <div class="picker-form">
-            <label>Project name<input bind:value={projectName} maxlength="80" /></label>
+            {#if pickerTarget === 'project'}<label>Project name<input bind:value={projectName} maxlength="80" /></label>{/if}
             {#if error}<p class="error" role="alert">{error}</p>{/if}
             <div class="picker-actions">
               <button class="quiet-action" onclick={() => pickerOpen = false}>Cancel</button>
-              <button class="primary-action" onclick={() => void addProject()} disabled={pickerLoading || !projectName.trim()}>Add this directory</button>
+              {#if pickerTarget === 'project'}
+                <button class="primary-action" onclick={() => void addProject()} disabled={pickerLoading || !projectName.trim()}>Add this directory</button>
+              {:else}
+                <button class="primary-action" onclick={chooseBotDirectory}>Use this directory</button>
+              {/if}
             </div>
           </div>
         {/if}

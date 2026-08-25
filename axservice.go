@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,28 @@ type Project struct {
 	Path string `json:"path,omitempty"`
 }
 
+type Bot struct {
+	ID            string   `json:"id,omitempty"`
+	Name          string   `json:"name"`
+	Prompt        string   `json:"prompt"`
+	Tools         []string `json:"tools"`
+	WorkspaceRoot string   `json:"workspace_root"`
+	SkillRoot     string   `json:"skill_root,omitempty"`
+	Model         string   `json:"model,omitempty"`
+}
+
+type Connector struct {
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	BotID     string `json:"bot_id"`
+	ProjectID string `json:"project_id"`
+	Enabled   bool   `json:"enabled"`
+	Status    string `json:"status,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Restarts  int    `json:"restarts,omitempty"`
+}
+
 type DirectoryRoot struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -56,6 +79,7 @@ type DirectoryResponse struct {
 type Session struct {
 	ID        string `json:"id"`
 	ProjectID string `json:"project_id"`
+	BotID     string `json:"bot_id,omitempty"`
 	Title     string `json:"title"`
 	UpdatedAt string `json:"updated_at"`
 }
@@ -73,9 +97,17 @@ type Message struct {
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
+type Artifact struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	Size      int64  `json:"size"`
+}
+
 type SessionDetail struct {
 	Session
-	Messages []Message `json:"messages"`
+	Messages  []Message  `json:"messages"`
+	Artifacts []Artifact `json:"artifacts"`
 }
 
 type RunSummary struct {
@@ -155,25 +187,67 @@ func (s *AXService) AddProject(name, path string) (Project, error) {
 }
 
 func (s *AXService) DeleteProject(id string) error {
-	s.mu.Lock()
-	baseURL := s.baseURL
-	username := s.username
-	password := s.password
-	s.mu.Unlock()
-	req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/projects/"+url.PathEscape(id), nil)
+	return s.delete("/api/projects/" + url.PathEscape(id))
+}
+
+func (s *AXService) Bots() ([]Bot, error) {
+	var items []Bot
+	if err := s.getJSON("/api/bots", &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *AXService) SaveBot(item Bot) (Bot, error) {
+	var result Bot
+	body, err := json.Marshal(item)
 	if err != nil {
-		return err
+		return result, err
 	}
-	setAuth(req, username, password)
-	resp, err := s.client.Do(req)
+	method := http.MethodPost
+	endpoint := "/api/bots"
+	if item.ID != "" {
+		method = http.MethodPut
+		endpoint += "/" + url.PathEscape(item.ID)
+	}
+	if err := s.requestJSONBody(method, endpoint, body, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s *AXService) DeleteBot(id string) error {
+	return s.delete("/api/bots/" + url.PathEscape(id))
+}
+
+func (s *AXService) Connectors() ([]Connector, error) {
+	var items []Connector
+	if err := s.getJSON("/api/connectors", &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *AXService) SaveConnector(item Connector) (Connector, error) {
+	var result Connector
+	body, err := json.Marshal(item)
 	if err != nil {
-		return err
+		return result, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		return responseError(resp)
+	method := http.MethodPost
+	endpoint := "/api/connectors"
+	if item.ID != "" {
+		method = http.MethodPut
+		endpoint += "/" + url.PathEscape(item.ID)
 	}
-	return nil
+	if err := s.requestJSONBody(method, endpoint, body, &result); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s *AXService) DeleteConnector(id string) error {
+	return s.delete("/api/connectors/" + url.PathEscape(id))
 }
 
 func (s *AXService) Sessions(projectID string) ([]Session, error) {
@@ -184,9 +258,13 @@ func (s *AXService) Sessions(projectID string) ([]Session, error) {
 	return items, nil
 }
 
-func (s *AXService) NewSession(projectID string) (SessionDetail, error) {
+func (s *AXService) NewSession(projectID, botID string) (SessionDetail, error) {
 	var item SessionDetail
-	if err := s.postJSON("/api/projects/"+url.PathEscape(projectID)+"/sessions", &item); err != nil {
+	body, err := json.Marshal(map[string]string{"bot_id": botID})
+	if err != nil {
+		return item, err
+	}
+	if err := s.requestJSONBody(http.MethodPost, "/api/projects/"+url.PathEscape(projectID)+"/sessions", body, &item); err != nil {
 		return item, err
 	}
 	return item, nil
@@ -201,12 +279,16 @@ func (s *AXService) OpenSession(id string) (SessionDetail, error) {
 }
 
 func (s *AXService) DeleteSession(id string) error {
+	return s.delete("/api/sessions/" + url.PathEscape(id))
+}
+
+func (s *AXService) delete(path string) error {
 	s.mu.Lock()
 	baseURL := s.baseURL
 	username := s.username
 	password := s.password
 	s.mu.Unlock()
-	req, err := http.NewRequest(http.MethodDelete, baseURL+"/api/sessions/"+url.PathEscape(id), nil)
+	req, err := http.NewRequest(http.MethodDelete, baseURL+path, nil)
 	if err != nil {
 		return err
 	}
@@ -220,6 +302,39 @@ func (s *AXService) DeleteSession(id string) error {
 		return responseError(resp)
 	}
 	return nil
+}
+
+func (s *AXService) ArtifactSource(session, id string) (string, error) {
+	s.mu.Lock()
+	baseURL := s.baseURL
+	username := s.username
+	password := s.password
+	s.mu.Unlock()
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/sessions/"+url.PathEscape(session)+"/artifacts/"+url.PathEscape(id), nil)
+	if err != nil {
+		return "", err
+	}
+	setAuth(req, username, password)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", responseError(resp)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 25*1024*1024+1))
+	if err != nil {
+		return "", err
+	}
+	if len(data) > 25*1024*1024 {
+		return "", errors.New("artifact is too large")
+	}
+	mediaType := resp.Header.Get("Content-Type")
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
 }
 
 func (s *AXService) ResumeRuns() ([]RunSummary, error) {

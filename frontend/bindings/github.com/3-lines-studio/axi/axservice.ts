@@ -13,12 +13,32 @@ export function AddProject(name: string, path: string): $CancellablePromise<$mod
     return $Call.ByID(3415003096, name, path);
 }
 
+export function ArtifactSource(session: string, id: string): $CancellablePromise<string> {
+    return $Call.ByID(3915958247, session, id);
+}
+
+export function Bots(): $CancellablePromise<$models.Bot[] | null> {
+    return $Call.ByID(2070968066);
+}
+
 export function Cancel(session: string): $CancellablePromise<void> {
     return $Call.ByID(404152658, session);
 }
 
 export function Connect(baseURL: string, username: string, password: string): $CancellablePromise<void> {
     return $Call.ByID(1210147758, baseURL, username, password);
+}
+
+export function Connectors(): $CancellablePromise<$models.Connector[] | null> {
+    return $Call.ByID(4168191744);
+}
+
+export function DeleteBot(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3488197120, id);
+}
+
+export function DeleteConnector(id: string): $CancellablePromise<void> {
+    return $Call.ByID(33325902, id);
 }
 
 export function DeleteProject(id: string): $CancellablePromise<void> {
@@ -33,8 +53,8 @@ export function Directories(path: string): $CancellablePromise<$models.Directory
     return $Call.ByID(2360697339, path);
 }
 
-export function NewSession(projectID: string): $CancellablePromise<$models.SessionDetail> {
-    return $Call.ByID(2600216170, projectID);
+export function NewSession(projectID: string, botID: string): $CancellablePromise<$models.SessionDetail> {
+    return $Call.ByID(2600216170, projectID, botID);
 }
 
 export function OpenSession(id: string): $CancellablePromise<$models.SessionDetail> {
@@ -47,6 +67,14 @@ export function Projects(): $CancellablePromise<$models.Project[] | null> {
 
 export function ResumeRuns(): $CancellablePromise<$models.RunSummary[] | null> {
     return $Call.ByID(3583972733);
+}
+
+export function SaveBot(item: $models.Bot): $CancellablePromise<$models.Bot> {
+    return $Call.ByID(3169410574, item);
+}
+
+export function SaveConnector(item: $models.Connector): $CancellablePromise<$models.Connector> {
+    return $Call.ByID(3536322592, item);
 }
 
 export function Send(session: string, prompt: string): $CancellablePromise<void> {

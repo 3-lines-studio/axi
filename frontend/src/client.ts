@@ -8,6 +8,8 @@ export type ClientEvent = {
   arguments?: string
   text?: string
   output?: string
+  media_type?: string
+  size?: number
 }
 
 type Listener = (event: ClientEvent) => void
@@ -88,12 +90,19 @@ async function attach(session: string, run: string): Promise<void> {
 const browserClient = {
   async Connect(_baseUrl: string, _username: string, _password: string): Promise<void> {},
   Projects: () => request('/api/projects'),
+  Bots: () => request('/api/bots'),
+  SaveBot: (bot: { id: string }) => request(bot.id ? `/api/bots/${encodeURIComponent(bot.id)}` : '/api/bots', { method: bot.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bot) }),
+  DeleteBot: (bot: string) => request(`/api/bots/${encodeURIComponent(bot)}`, { method: 'DELETE' }),
+  Connectors: () => request('/api/connectors'),
+  SaveConnector: (connector: { id: string }) => request(connector.id ? `/api/connectors/${encodeURIComponent(connector.id)}` : '/api/connectors', { method: connector.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(connector) }),
+  DeleteConnector: (connector: string) => request(`/api/connectors/${encodeURIComponent(connector)}`, { method: 'DELETE' }),
   Sessions: (project: string) => request(`/api/projects/${encodeURIComponent(project)}/sessions`),
   Directories: (path: string) => request(`/api/directories?path=${encodeURIComponent(path)}`),
   AddProject: (name: string, path: string) => request('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, path }) }),
   DeleteProject: (project: string) => request(`/api/projects/${encodeURIComponent(project)}`, { method: 'DELETE' }),
-  NewSession: (project: string) => request(`/api/projects/${encodeURIComponent(project)}/sessions`, { method: 'POST' }),
+  NewSession: (project: string, bot: string) => request(`/api/projects/${encodeURIComponent(project)}/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bot_id: bot }) }),
   DeleteSession: (session: string) => request(`/api/sessions/${encodeURIComponent(session)}`, { method: 'DELETE' }),
+  ArtifactSource: (session: string, artifact: string) => Promise.resolve(`/api/sessions/${encodeURIComponent(session)}/artifacts/${encodeURIComponent(artifact)}`),
   OpenSession: (session: string) => request(`/api/sessions/${encodeURIComponent(session)}`),
   async ResumeRuns(): Promise<Run[]> {
     const active = await request('/api/runs') as Run[]

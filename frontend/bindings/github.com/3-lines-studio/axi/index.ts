@@ -7,6 +7,9 @@ export {
 };
 
 export type {
+    Artifact,
+    Bot,
+    Connector,
     Directory,
     DirectoryResponse,
     DirectoryRoot,

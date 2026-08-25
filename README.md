@@ -63,6 +63,7 @@ Set a strong matching username and password for Axis and Axi:
 AXIS_ADDRESS=127.0.0.1:8081
 AXIS_USERNAME=axbot
 AXIS_PASSWORD=replace-this
+AX_TOOLS=fsx bashx skillx
 AXI_AXIS_URL=http://127.0.0.1:8081
 AXI_AXIS_USERNAME=axbot
 AXI_AXIS_PASSWORD=replace-this
