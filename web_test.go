@@ -136,6 +136,28 @@ func TestLocalSetup(t *testing.T) {
 	}
 }
 
+func TestLocalBrowserURL(t *testing.T) {
+	address, err := localBrowserURL("0.0.0.0:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if address != "http://127.0.0.1:8080" {
+		t.Fatalf("unexpected address: %s", address)
+	}
+}
+
+func TestProbeAxi(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Axi-Service", "1")
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	running, occupied := probeAxi(server.URL)
+	if !running || !occupied {
+		t.Fatalf("unexpected probe: %t %t", running, occupied)
+	}
+}
+
 func TestValidateWebAddress(t *testing.T) {
 	for _, address := range []string{"127.0.0.1:8080", "localhost:8080", "[::1]:8080"} {
 		if err := validateWebAddress(address); err != nil {

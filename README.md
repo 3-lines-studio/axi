@@ -13,11 +13,7 @@ axi
 
 The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:8080` after startup. On first launch, Axi asks for an API key, model, and optional OpenAI-compatible endpoint. Local providers may omit the key. Axi stores the AX configuration locally with mode `0600` and never returns a saved key to the browser.
 
-Check the complete local installation with:
-
-```sh
-axi doctor
-```
+Running `axi` starts a detached local Axi when needed and opens it in the default browser. Later invocations reuse the same process. Axi and Axis keep running after the terminal and browser close. Logs are stored under `~/.local/share/axi/logs`.
 
 Update by running the install command again. Running binaries are replaced atomically. Uninstall the complete binary bundle with:
 
@@ -58,7 +54,7 @@ wails3 build
 bin/axi web
 ```
 
-The released headless binary also starts web mode when invoked as plain `axi`.
+The released headless binary starts a persistent local Axi and opens the browser when invoked as plain `axi`. The explicit `web` form remains for existing services and foreground deployments.
 
 When `AXI_AXIS_URL` is absent, Axi starts a private local Axis process and stops it on shutdown. Local state lives under `~/.local/share/axi`; set `AXI_HOME` to change it. The `axis` and `ax` binaries must be on `PATH`. On first start, Axi creates a default project for the current directory and an Assistant bot with `fsx`, `bashx`, `skillx`, and `attachx`. Set `OPENAI_API_KEY` or configure AX before starting Axi.
 

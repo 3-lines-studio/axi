@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { ArrowDown, ArrowUp, Bot as BotIcon, ChevronRight, Copy, FileText, Folder, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, Paperclip, Plug, Plus, Settings, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Bot as BotIcon, ChevronRight, Copy, FileText, Folder, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, Paperclip, Plug, Plus, Power, Settings, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
   import { browser, client, subscribe } from './client';
 
   type Project = { id: string; name: string };
@@ -33,6 +33,7 @@
   let setupBase = $state('');
   let prompt = $state('');
   let connected = $state(false);
+  let stopped = $state(false);
   let darkMode = $state(false);
   let runningSessions: string[] = $state([]);
   let loading = $state(false);
@@ -98,6 +99,18 @@
     setupExisting = true;
     setupRequired = true;
     error = '';
+  }
+
+  async function quitAxi(): Promise<void> {
+    if (!browser) {
+      return;
+    }
+    try {
+      await fetch('/api/local/quit', { method: 'POST' });
+    } finally {
+      stopped = true;
+      connected = false;
+    }
   }
 
   async function saveSetup(): Promise<void> {
@@ -713,7 +726,11 @@
   }
 </script>
 
-{#if setupChecking}
+{#if stopped}
+  <main class="connect-shell">
+    <div class="connect-card setup-loading"><div class="mark">AX</div><div><h1>Axi stopped</h1><p>You can close this tab. Run Axi to start it again.</p></div></div>
+  </main>
+{:else if setupChecking}
   <main class="connect-shell">
     <div class="connect-card setup-loading"><div class="mark">AX</div><p>Starting Axi…</p></div>
   </main>
@@ -829,6 +846,7 @@
           <span class="server-url">{browser ? 'Axis via Axi Web' : baseUrl}</span>
           {#if browser}
             <button class="quiet server-action" onclick={openSetup} aria-label="Change provider" title="Change provider"><SlidersHorizontal aria-hidden="true" /><span>Model provider</span></button>
+            <button class="quiet server-action" onclick={() => void quitAxi()} aria-label="Quit Axi" title="Quit Axi"><Power aria-hidden="true" /><span>Quit Axi</span></button>
           {:else}
             <button class="quiet server-action" onclick={() => { connected = false; messages = []; }} aria-label="Change server" title="Change server"><SlidersHorizontal aria-hidden="true" /><span>Change server</span></button>
           {/if}

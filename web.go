@@ -69,12 +69,21 @@ func runWeb() error {
 	}
 	files := http.FileServer(http.FS(frontend))
 	mux := http.NewServeMux()
+	quit := make(chan struct{}, 1)
 	mux.HandleFunc("GET /health", func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("X-Axi-Service", "1")
 		response.WriteHeader(http.StatusNoContent)
 	})
 	if local != nil {
 		mux.HandleFunc("GET /api/setup", getLocalSetup)
 		mux.HandleFunc("POST /api/setup", saveLocalSetup)
+		mux.HandleFunc("POST /api/local/quit", func(response http.ResponseWriter, request *http.Request) {
+			select {
+			case quit <- struct{}{}:
+			default:
+			}
+			response.WriteHeader(http.StatusNoContent)
+		})
 	}
 	mux.Handle("/api/", proxy)
 	mux.Handle("/runs/", proxy)
@@ -105,9 +114,9 @@ func runWeb() error {
 
 	select {
 	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return server.Shutdown(shutdown)
+		return shutdownServer(server)
+	case <-quit:
+		return shutdownServer(server)
 	case err := <-serverError:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
@@ -116,6 +125,23 @@ func runWeb() error {
 	case err := <-localDone(local):
 		return fmt.Errorf("local Axis stopped: %w", err)
 	}
+}
+
+func shutdownServer(server *http.Server) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return server.Shutdown(ctx)
+}
+
+func axiHome() (string, error) {
+	if home := strings.TrimSpace(os.Getenv("AXI_HOME")); home != "" {
+		return filepath.Abs(home)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "share", "axi"), nil
 }
 
 func startLocalAxis(ctx context.Context) (*localAxis, error) {

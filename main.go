@@ -21,11 +21,6 @@ func main() {
 				log.Fatal(err)
 			}
 			return
-		case "doctor":
-			if err := runDoctor(); err != nil {
-				log.Fatal(err)
-			}
-			return
 		}
 	}
 
