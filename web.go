@@ -229,7 +229,7 @@ func bootstrapLocalConfig(home string, config string) error {
 			{
 				"id":             "assistant",
 				"name":           "Assistant",
-				"prompt":         "",
+				"prompt":         "Help the user with tasks in the selected project.",
 				"tools":          tools,
 				"workspace_root": workspace,
 			},
@@ -276,8 +276,17 @@ func providerConfigured() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	text := string(data)
-	return strings.Contains(text, "api_key =") || strings.Contains(text, "base ="), nil
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if found && (strings.TrimSpace(key) == "api_key" || strings.TrimSpace(key) == "base") && strings.TrimSpace(value) != "" {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func saveLocalSetup(response http.ResponseWriter, request *http.Request) {
@@ -294,13 +303,36 @@ func saveLocalSetup(response http.ResponseWriter, request *http.Request) {
 	setup.APIKey = strings.TrimSpace(setup.APIKey)
 	setup.Model = strings.TrimSpace(setup.Model)
 	setup.Base = strings.TrimRight(strings.TrimSpace(setup.Base), "/")
-	if setup.APIKey == "" && setup.Base == "" {
+	path := axConfigPath()
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		http.Error(response, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var apiKeyLine string
+	var otherLines []string
+	for _, line := range strings.Split(strings.TrimRight(string(existing), "\n"), "\n") {
+		key, _, found := strings.Cut(line, "=")
+		switch strings.TrimSpace(key) {
+		case "api_key":
+			apiKeyLine = line
+		case "model", "base":
+		default:
+			if found || strings.TrimSpace(line) != "" {
+				otherLines = append(otherLines, line)
+			}
+		}
+	}
+	if setup.APIKey != "" {
+		apiKeyLine = "api_key = " + strconv.Quote(setup.APIKey)
+	}
+	if apiKeyLine == "" && setup.Base == "" {
 		http.Error(response, "API key or base URL is required", http.StatusBadRequest)
 		return
 	}
 	var lines []string
-	if setup.APIKey != "" {
-		lines = append(lines, "api_key = "+strconv.Quote(setup.APIKey))
+	if apiKeyLine != "" {
+		lines = append(lines, apiKeyLine)
 	}
 	if setup.Model != "" {
 		lines = append(lines, "model = "+strconv.Quote(setup.Model))
@@ -308,7 +340,7 @@ func saveLocalSetup(response http.ResponseWriter, request *http.Request) {
 	if setup.Base != "" {
 		lines = append(lines, "base = "+strconv.Quote(setup.Base))
 	}
-	path := axConfigPath()
+	lines = append(lines, otherLines...)
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		http.Error(response, err.Error(), http.StatusInternalServerError)
 		return

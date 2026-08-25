@@ -108,6 +108,25 @@ func TestLocalSetup(t *testing.T) {
 	if info.Mode().Perm() != 0600 {
 		t.Fatalf("unexpected mode: %o", info.Mode().Perm())
 	}
+	if err := os.WriteFile(filepath.Join(config, "ax", "config"), append(data, []byte("context_window = 1000\n")...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.NewBufferString(`{"api_key":"","model":"other-model","base":""}`)
+	request = httptest.NewRequest(http.MethodPost, "/api/setup", body)
+	request.Header.Set("Content-Type", "application/json")
+	response = httptest.NewRecorder()
+	saveLocalSetup(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status: %d %s", response.Code, response.Body.String())
+	}
+	data, err = os.ReadFile(filepath.Join(config, "ax", "config"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = "api_key = \"secret\"\nmodel = \"other-model\"\ncontext_window = 1000\n"
+	if string(data) != want {
+		t.Fatalf("unexpected updated config: %s", data)
+	}
 
 	request = httptest.NewRequest(http.MethodGet, "/api/setup", nil)
 	response = httptest.NewRecorder()

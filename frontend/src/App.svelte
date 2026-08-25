@@ -731,7 +731,7 @@
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <div class="setup-actions">
         {#if setupExisting}<button class="quiet-action" type="button" onclick={() => setupRequired = false}>Cancel</button>{/if}
-        <button class="primary" type="submit" disabled={loading || (!setupAPIKey.trim() && !setupBase.trim())}>{loading ? 'Saving…' : setupExisting ? 'Save provider' : 'Start chatting'}</button>
+        <button class="primary" type="submit" disabled={loading || (!setupExisting && !setupAPIKey.trim() && !setupBase.trim())}>{loading ? 'Saving…' : setupExisting ? 'Save provider' : 'Start chatting'}</button>
       </div>
       <p class="setup-note">Your key stays on this machine.</p>
     </form>
