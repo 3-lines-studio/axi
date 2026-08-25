@@ -1,5 +1,7 @@
 # Axi
 
+<p align="center"><img src=".github/ax.svg" width="96" height="96" alt="AX ecosystem"></p>
+
 Native and web graphical interface for AX.
 
 ## Install
@@ -60,7 +62,7 @@ bin/axi web
 
 The released headless binary starts a persistent local Axi and opens the browser when invoked as plain `axi`. The explicit `web` form remains for existing services and foreground deployments.
 
-When `AXI_AXIS_URL` is absent, Axi starts a private local Axis process and stops it on shutdown. Local state lives under `~/.local/share/axi`; set `AXI_HOME` to change it. The `axis` and `ax` binaries must be on `PATH`. On first start, Axi creates a default project for the current directory and an Assistant bot with `fsx`, `bashx`, `skillx`, and `attachx`. Set `OPENAI_API_KEY` or configure AX before starting Axi.
+When `AXI_AXIS_URL` is absent, Axi starts a private local Axis process and stops it on shutdown. Local state lives under `~/.local/share/axi`; set `AXI_HOME` to change it. The `axis` and `ax` binaries must be on `PATH`. On first start, Axi creates a default project for the current directory and an Assistant bot that uses the model and tools from `~/.config/ax/config`. Set `OPENAI_API_KEY` or configure AX before starting Axi.
 
 To use an existing local or remote Axis instead:
 

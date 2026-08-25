@@ -9,7 +9,9 @@ build:
 	cd $(AXIS_DIR) && go build -o bin/axis .
 	cd $(SLAXI_DIR) && go build -o bin/slaxi .
 	cd $(ATTACHX_DIR) && go build -o bin/attachx .
-	wails3 build
+	npm --prefix frontend install
+	npm --prefix frontend run build
+	CGO_ENABLED=0 go build -tags headless -trimpath -o bin/axi .
 
 install: build
 	install -Dm755 $(AXIS_DIR)/bin/axis $(PREFIX)/bin/.axis.new

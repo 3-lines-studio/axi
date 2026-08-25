@@ -40,51 +40,56 @@ async function request(path: string, options?: RequestInit): Promise<any> {
 
 async function attach(session: string, run: string): Promise<void> {
   runs.set(session, run)
-  try {
-    const response = await fetch(`/runs/${encodeURIComponent(run)}/events`)
-    if (!response.ok || !response.body) {
-      throw new Error((await response.text()).trim() || response.statusText)
-    }
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    let type = 'message'
-    let sequence = 0
-    for (;;) {
-      const result = await reader.read()
-      buffer += decoder.decode(result.value, { stream: !result.done })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() ?? ''
-      for (const line of lines) {
-        if (line.startsWith('id: ')) {
-          sequence = Number(line.slice(4))
-          continue
-        }
-        if (line.startsWith('event: ')) {
-          type = line.slice(7)
-          continue
-        }
-        if (!line.startsWith('data: ')) {
-          continue
-        }
-        const value = line.slice(6)
-        const data = value === 'null' ? {} : JSON.parse(value)
-        const event = typeof data === 'string' ? { text: data } : data
-        emit({ ...event, type, session_id: session, run_id: run, sequence })
-        if (type === 'done' || type === 'failure') {
-          runs.delete(session)
-          return
-        }
-        type = 'message'
+  let sequence = 0
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const response = await fetch(`/runs/${encodeURIComponent(run)}/events?after=${sequence}`)
+      if (!response.ok || !response.body) {
+        throw new Error((await response.text()).trim() || response.statusText)
       }
-      if (result.done) {
-        return
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let type = 'message'
+      for (;;) {
+        const result = await reader.read()
+        buffer += decoder.decode(result.value, { stream: !result.done })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('id: ')) {
+            sequence = Number(line.slice(4))
+            continue
+          }
+          if (line.startsWith('event: ')) {
+            type = line.slice(7)
+            continue
+          }
+          if (!line.startsWith('data: ')) {
+            continue
+          }
+          const value = line.slice(6)
+          const data = value === 'null' ? {} : JSON.parse(value)
+          const event = typeof data === 'string' ? { text: data } : data
+          emit({ ...event, type, session_id: session, run_id: run, sequence })
+          if (type === 'done' || type === 'failure') {
+            runs.delete(session)
+            return
+          }
+          type = 'message'
+        }
+        if (result.done) {
+          throw new Error('stream ended')
+        }
+      }
+    } catch {
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)))
       }
     }
-  } catch (cause) {
-    runs.delete(session)
-    emit({ type: 'failure', session_id: session, run_id: run, text: cause instanceof Error ? cause.message : String(cause) })
   }
+  runs.delete(session)
+  emit({ type: 'failure', session_id: session, run_id: run, text: 'Connection to the run was lost.' })
 }
 
 const browserClient = {

@@ -233,7 +233,8 @@
           ? localStorage.getItem('ax-project') ?? projects[0].id
           : projects[0].id;
         projectId = active;
-        const latest = sessionsByProject[active]?.[0];
+        const savedSession = localStorage.getItem('ax-session');
+        const latest = sessionsByProject[active]?.find((session) => session.id === savedSession) ?? sessionsByProject[active]?.[0];
         if (latest) {
           await openSession(latest.id);
         }
@@ -348,6 +349,7 @@
     botId = id;
     sessionId = '';
     messages = [];
+    localStorage.removeItem('ax-session');
     localStorage.setItem('ax-bot', id);
   }
 
@@ -434,6 +436,7 @@
       transcriptsBySession[item.id] = messages;
       sessionsByProject[targetProject] = [item, ...(sessionsByProject[targetProject] ?? [])];
       localStorage.setItem('ax-project', targetProject);
+      localStorage.setItem('ax-session', item.id);
       sidebarOpen = false;
       await tick();
       composer?.focus();
@@ -473,6 +476,7 @@
         sessionId = '';
         messages = [];
         localStorage.removeItem('ax-project');
+        localStorage.removeItem('ax-session');
       }
     } catch (cause) {
       error = messageFrom(cause);
@@ -498,6 +502,7 @@
       if (sessionId === session.id) {
         sessionId = '';
         messages = [];
+        localStorage.removeItem('ax-session');
       }
     } catch (cause) {
       error = messageFrom(cause);
@@ -520,6 +525,7 @@
       messages = cached && isRunning(id) ? cached : restored;
       transcriptsBySession[id] = messages;
       localStorage.setItem('ax-project', item.project_id);
+      localStorage.setItem('ax-session', item.id);
       sidebarOpen = false;
       await scrollToEnd(true);
     } catch (cause) {
@@ -627,6 +633,9 @@
     }
     if (event.type === 'failure' && targetSession === sessionId) {
       error = event.text ?? 'AX failed';
+      if (event.text === 'Connection to the run was lost.') {
+        void reloadSession(targetSession);
+      }
     }
     const last = target.at(-1);
     if (event.type === 'cancelled' && last?.kind === 'message' && last.content === '') {
@@ -638,6 +647,24 @@
       if (targetSession === sessionId) {
         void tick().then(() => composer?.focus());
       }
+    }
+  }
+
+  async function reloadSession(id: string): Promise<void> {
+    try {
+      const item = await client.OpenSession(id) as SessionDetail;
+      const restored = restoreTranscript(item.messages ?? []);
+      const restoredArtifacts = (item.artifacts ?? []).map((artifact): ArtifactItem => ({ kind: 'artifact', ...artifact, session_id: item.id, source: browser ? artifactPath(item.id, artifact.id) : undefined }));
+      restored.push(...restoredArtifacts);
+      restoredArtifacts.forEach((artifact) => void prepareArtifact(artifact));
+      if (id === sessionId) {
+        messages = restored;
+        transcriptsBySession[id] = restored;
+        error = 'Run interrupted. Saved messages were restored.';
+        await scrollToEnd(true);
+      }
+    } catch {
+      error = 'Connection lost. Reload the page to restore saved messages.';
     }
   }
 
@@ -791,11 +818,11 @@
 
 {#if stopped}
   <main class="connect-shell">
-    <div class="connect-card setup-loading"><div class="mark">AX</div><div><h1>Axi stopped</h1><p>You can close this tab. Run Axi to start it again.</p></div></div>
+    <div class="connect-card setup-loading"><div class="mark"><img src="/logo.svg" alt="" /></div><div><h1>Axi stopped</h1><p>You can close this tab. Run Axi to start it again.</p></div></div>
   </main>
 {:else if setupChecking}
   <main class="connect-shell">
-    <div class="connect-card setup-loading"><div class="mark">AX</div><p>Starting Axi…</p></div>
+    <div class="connect-card setup-loading"><div class="mark"><img src="/logo.svg" alt="" /></div><p>Starting Axi…</p></div>
   </main>
 {:else if setupRequired}
   <main class="connect-shell">
@@ -803,7 +830,7 @@
       <button class="theme-toggle connect-theme" type="button" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
         {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
       </button>
-      <div class="mark">AX</div>
+      <div class="mark"><img src="/logo.svg" alt="" /></div>
       <div><h1>Welcome to Axi</h1><p>Connect your model provider to start chatting.</p></div>
       <label>API key <span class="optional">Optional for local providers</span><input bind:value={setupAPIKey} type="password" autocomplete="off" placeholder="sk-…" /></label>
       <label>Model<input bind:value={setupModel} placeholder="gpt-4.1-mini" /></label>
@@ -822,7 +849,7 @@
       <button class="theme-toggle connect-theme" type="button" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
         {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
       </button>
-      <div class="mark">AX</div>
+      <div class="mark"><img src="/logo.svg" alt="" /></div>
       <div><h1>Connect to Axis</h1><p>Enter your Axis server URL.</p></div>
       <label>Server URL<input bind:value={baseUrl} type="url" inputmode="url" placeholder="https://ax.example.com" required /></label>
       <label>Username<input bind:value={username} autocomplete="username" /></label>
@@ -844,7 +871,7 @@
     <div class="workspace">
       <aside class:open={sidebarOpen}>
         <div class="sidebar-header">
-          <div class="mark small">AX</div>
+          <div class="mark small"><img src="/logo.svg" alt="" /></div>
           <strong>Axi</strong>
           <button class="theme-toggle" onclick={toggleTheme} aria-label={darkMode ? 'Use light mode' : 'Use dark mode'} title={darkMode ? 'Use light mode' : 'Use dark mode'}>
             {#if darkMode}<Sun aria-hidden="true" />{:else}<Moon aria-hidden="true" />{/if}
@@ -928,7 +955,14 @@
               <article class:assistant={item.role === 'assistant'} class:user={item.role === 'user'}>
                 <div class="role">{item.role === 'assistant' ? 'AX' : 'You'}</div>
                 <div class="message-body">
-                  {#if item.content}{@html render(item.content)}{:else}<span class="cursor"></span>{/if}
+                  {#if item.content}
+                    {@html render(item.content)}
+                    {#if isRunning(sessionId) && item === messages.at(-1)}
+                      <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Writing</div>
+                    {/if}
+                  {:else}
+                    <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Thinking</div>
+                  {/if}
                 </div>
               </article>
             {:else if item.kind === 'artifact'}
@@ -976,6 +1010,12 @@
               </div>
             {/if}
           {/each}
+          {#if isRunning(sessionId) && messages.at(-1)?.kind !== 'message' && !messages.some((item) => item.kind === 'tool' && item.status === 'running')}
+            <article class="assistant waiting-response">
+              <div class="role">AX</div>
+              <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Thinking</div>
+            </article>
+          {/if}
         </div>
 
         {#if !atBottom}

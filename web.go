@@ -245,9 +245,6 @@ func startLocalAxis(ctx context.Context) (*localAxis, error) {
 		"AXIS_CONNECTOR_ENV_DIR="+filepath.Join(config, "connectors"),
 		"AXIS_CONNECTOR_URL=http://"+address,
 	)
-	if os.Getenv("AX_TOOLS") == "" {
-		command.Env = append(command.Env, "AX_TOOLS=fsx bashx skillx attachx")
-	}
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
@@ -297,9 +294,6 @@ func bootstrapLocalConfig(home string, config string) error {
 		},
 	}
 	tools := strings.Fields(os.Getenv("AX_TOOLS"))
-	if len(tools) == 0 {
-		tools = []string{"fsx", "bashx", "skillx", "attachx"}
-	}
 	bots := map[string]any{
 		"bots": []map[string]any{
 			{
