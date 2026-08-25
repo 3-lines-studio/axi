@@ -24,7 +24,7 @@ jobs:
       - run: npm --prefix frontend run build
       - run: test -z "$(gofmt -l -- *.go)"
       - run: go mod tidy -diff
-      - run: go vet -tags headless ./...
-      - run: go test -tags headless ./...
+      - run: go vet -tags headless .
+      - run: go test -tags headless .
       - run: go build -tags headless -trimpath -buildvcs=false -ldflags="-s -w -buildid=" -o axi .
       - run: test "$(stat -c %s axi)" -le 15000000
