@@ -19,7 +19,7 @@ import (
 func launchAxi() error {
 	address := os.Getenv("AXI_WEB_ADDRESS")
 	if address == "" {
-		address = "127.0.0.1:8080"
+		address = "127.0.0.1:7777"
 	}
 	browserURL, err := localBrowserURL(address)
 	if err != nil {

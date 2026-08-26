@@ -44,9 +44,9 @@ WORKDIR /data/projects
 ENV HOME=/home/axi
 ENV AXI_HOME=/data
 ENV XDG_CONFIG_HOME=/data/config
-ENV AXI_WEB_ADDRESS=0.0.0.0:8080
-EXPOSE 8080
+ENV AXI_WEB_ADDRESS=0.0.0.0:7777
+EXPOSE 7777
 VOLUME ["/data"]
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:8080/health -o /dev/null || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 CMD curl -fsS http://127.0.0.1:7777/health -o /dev/null || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["axi", "web"]

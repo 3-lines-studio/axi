@@ -480,7 +480,7 @@ aside {
 .project-sessions {
   display: grid;
   gap: var(--space-1);
-  padding: 0 var(--space-1) var(--space-2) var(--space-6);
+  padding: 0 var(--space-1) var(--space-2);
 }
 
 .session-row {
@@ -1771,10 +1771,6 @@ aside {
 
 .projects section.current {
   background: transparent;
-}
-
-.project-sessions {
-  padding-left: 22px;
 }
 
 .chat {

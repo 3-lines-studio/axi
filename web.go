@@ -71,7 +71,7 @@ func runWeb() error {
 	files := http.FileServer(http.FS(frontend))
 	address := os.Getenv("AXI_WEB_ADDRESS")
 	if address == "" {
-		address = "127.0.0.1:8080"
+		address = "127.0.0.1:7777"
 	}
 	mux := http.NewServeMux()
 	quit := make(chan struct{}, 1)

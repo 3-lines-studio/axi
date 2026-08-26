@@ -13,7 +13,7 @@ curl -fsSL https://ax.3lines.studio/install.sh | sh -s -- axi
 axi
 ```
 
-The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:8080` after startup. On first launch, Axi asks for an API key, model, and optional OpenAI-compatible endpoint. Local providers may omit the key. Axi stores the AX configuration locally with mode `0600` and never returns a saved key to the browser.
+The bundle includes `axi`, `axis`, `ax`, `fsx`, `bashx`, `skillx`, and `attachx`. Open `http://127.0.0.1:7777` after startup. On first launch, Axi asks for an API key, model, and optional OpenAI-compatible endpoint. Local providers may omit the key. Axi stores the AX configuration locally with mode `0600` and never returns a saved key to the browser.
 
 Running `axi` starts a detached local Axi when needed and opens it in the default browser. Later invocations reuse the same process. Axi and Axis keep running after the terminal and browser close. Logs are stored under `~/.local/share/axi/logs`.
 
@@ -73,15 +73,15 @@ AXI_AXIS_PASSWORD=change-me \
 bin/axi web
 ```
 
-Axi listens on `127.0.0.1:8080` by default. Set `AXI_WEB_ADDRESS` to change it. The web server owns the frontend and proxies API and event streams to Axis, so Axis stays API-only and its credentials do not reach the browser.
+Axi listens on `127.0.0.1:7777` by default. Set `AXI_WEB_ADDRESS` to change it. The web server owns the frontend and proxies API and event streams to Axis, so Axis stays API-only and its credentials do not reach the browser.
 
 From another machine, keep Axi bound to localhost and use an SSH tunnel:
 
 ```sh
-ssh -L 8080:127.0.0.1:8080 server
+ssh -L 7777:127.0.0.1:7777 server
 ```
 
-Then open `http://127.0.0.1:8080`.
+Then open `http://127.0.0.1:7777`.
 
 ## Docker
 
@@ -89,7 +89,7 @@ Run the all-in-one image on localhost with persistent data:
 
 ```sh
 docker run --rm \
-  -p 127.0.0.1:8080:8080 \
+  -p 127.0.0.1:7777:7777 \
   -e AXI_ALLOW_PUBLIC=true \
   -v axi-data:/data \
   ghcr.io/3-lines-studio/axi
@@ -97,7 +97,7 @@ docker run --rm \
 
 Build it locally from the Axi repository with `docker build -t axi .`.
 
-Open `http://127.0.0.1:8080` and complete provider setup. The image runs as a non-root user and includes Axi, Axis, AX, Fsx, Bashx, Skillx, and Attachx. Binary versions are pinned and their release checksums are verified during the build.
+Open `http://127.0.0.1:7777` and complete provider setup. The image runs as a non-root user and includes Axi, Axis, AX, Fsx, Bashx, Skillx, and Attachx. Binary versions are pinned and their release checksums are verified during the build.
 
 Axi refuses non-loopback listeners unless `AXI_ALLOW_PUBLIC=true`. That flag only permits the listener; it does not add authentication. Keep localhost publishing for personal use. Put any internet-facing deployment behind an authentication proxy.
 
