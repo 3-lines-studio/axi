@@ -105,6 +105,8 @@ const browserClient = {
   DeleteConnector: (connector: string) => request(`/api/connectors/${encodeURIComponent(connector)}`, { method: 'DELETE' }),
   Sessions: (project: string) => request(`/api/projects/${encodeURIComponent(project)}/sessions`),
   Directories: (path: string) => request(`/api/directories?path=${encodeURIComponent(path)}`),
+  Commands: () => request('/api/commands'),
+  ProjectFiles: (project: string, query: string) => request(`/api/projects/${encodeURIComponent(project)}/files?q=${encodeURIComponent(query)}`),
   AddProject: (name: string, path: string) => request('/api/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, path }) }),
   DeleteProject: (project: string) => request(`/api/projects/${encodeURIComponent(project)}`, { method: 'DELETE' }),
   NewSession: (project: string, bot: string) => request(`/api/projects/${encodeURIComponent(project)}/sessions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bot_id: bot }) }),
@@ -129,6 +131,13 @@ const browserClient = {
       return
     }
     await request(`/runs/${encodeURIComponent(run)}/cancel`, { method: 'POST' })
+  },
+  async Steer(session: string, text: string): Promise<void> {
+    const run = runs.get(session)
+    if (!run) {
+      throw new Error('this chat is not running')
+    }
+    await request(`/runs/${encodeURIComponent(run)}/steer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })
   }
 }
 

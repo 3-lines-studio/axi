@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -174,6 +175,32 @@ func (s *AXService) Directories(path string) (DirectoryResponse, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+type BotCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type BotFileHit struct {
+	Path string `json:"path"`
+}
+
+func (s *AXService) Commands() ([]BotCommand, error) {
+	var items []BotCommand
+	if err := s.getJSON("/api/commands", &items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *AXService) ProjectFiles(project, query string) ([]BotFileHit, error) {
+	var items []BotFileHit
+	endpoint := "/api/projects/" + url.PathEscape(project) + "/files?q=" + url.QueryEscape(query)
+	if err := s.getJSON(endpoint, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (s *AXService) AddProject(name, path string) (Project, error) {
@@ -374,6 +401,41 @@ func (s *AXService) Send(session, prompt string) error {
 		return err
 	}
 	s.attach(session, runID, 0)
+	return nil
+}
+
+func (s *AXService) Steer(session, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return errors.New("enter a message")
+	}
+	s.mu.Lock()
+	item, exists := s.active[session]
+	baseURL := s.baseURL
+	username := s.username
+	password := s.password
+	s.mu.Unlock()
+	if !exists {
+		return errors.New("this chat is not running")
+	}
+
+	body, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/runs/"+url.PathEscape(item.runID)+"/steer", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setAuth(req, username, password)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return responseError(resp)
+	}
 	return nil
 }
 

@@ -9,6 +9,8 @@ export {
 export type {
     Artifact,
     Bot,
+    BotCommand,
+    BotFileHit,
     Connector,
     Directory,
     DirectoryResponse,

@@ -18,6 +18,15 @@ export interface Bot {
     "model"?: string;
 }
 
+export interface BotCommand {
+    "name": string;
+    "description": string;
+}
+
+export interface BotFileHit {
+    "path": string;
+}
+
 export interface Connector {
     "id"?: string;
     "name": string;

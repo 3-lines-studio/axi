@@ -25,6 +25,10 @@ export function Cancel(session: string): $CancellablePromise<void> {
     return $Call.ByID(404152658, session);
 }
 
+export function Commands(): $CancellablePromise<$models.BotCommand[] | null> {
+    return $Call.ByID(1511692198);
+}
+
 export function Connect(baseURL: string, username: string, password: string): $CancellablePromise<void> {
     return $Call.ByID(1210147758, baseURL, username, password);
 }
@@ -61,6 +65,10 @@ export function OpenSession(id: string): $CancellablePromise<$models.SessionDeta
     return $Call.ByID(1574619468, id);
 }
 
+export function ProjectFiles(project: string, query: string): $CancellablePromise<$models.BotFileHit[] | null> {
+    return $Call.ByID(356402088, project, query);
+}
+
 export function Projects(): $CancellablePromise<$models.Project[] | null> {
     return $Call.ByID(811711002);
 }
@@ -83,4 +91,8 @@ export function Send(session: string, prompt: string): $CancellablePromise<void>
 
 export function Sessions(projectID: string): $CancellablePromise<$models.Session[] | null> {
     return $Call.ByID(3365999221, projectID);
+}
+
+export function Steer(session: string, text: string): $CancellablePromise<void> {
+    return $Call.ByID(2007742073, session, text);
 }

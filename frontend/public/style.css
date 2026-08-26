@@ -920,6 +920,50 @@ article {
 footer {
   padding: 12px max(14px, calc((100% - 760px) / 2)) max(10px, env(safe-area-inset-bottom));
   background: linear-gradient(transparent, #f5f5f1 18%);
+  position: relative;
+}
+
+.slash-picker {
+  position: absolute;
+  bottom: calc(100% - 4px);
+  left: max(14px, calc((100% - 760px) / 2));
+  right: max(14px, calc((100% - 760px) / 2));
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #cecec5;
+  border-radius: var(--radius-medium);
+  background: #fff;
+  box-shadow: 0 -8px 30px rgba(30, 30, 25, 0.12);
+}
+
+.slash-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 8px var(--space-3);
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.slash-row strong {
+  flex: 0 0 auto;
+}
+
+.slash-row span {
+  color: #6d6d66;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-row.selected,
+.slash-row:hover {
+  background: #efefe9;
 }
 
 .composer {
@@ -2173,6 +2217,21 @@ footer {
 
 :root[data-theme='dark'] footer {
   background: linear-gradient(transparent, #191917 28%);
+}
+
+:root[data-theme='dark'] .slash-picker {
+  border-color: #42423d;
+  background: #242421;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme='dark'] .slash-row span {
+  color: #9d9d94;
+}
+
+:root[data-theme='dark'] .slash-row.selected,
+:root[data-theme='dark'] .slash-row:hover {
+  background: #30302c;
 }
 
 :root[data-theme='dark'] .composer {

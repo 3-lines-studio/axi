@@ -23,6 +23,8 @@
   type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[]; usage?: Usage };
   type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number; input?: number; cached_input?: number; window?: number; model?: string };
   type UpdateStatus = { current: string; latest?: string; available: boolean; downloaded: boolean; rollback: boolean; checking: boolean; error?: string; last_checked?: string };
+  type BotCommand = { name: string; description: string };
+  type FileHit = { path: string };
 
   let baseUrl = $state('');
   let username = $state('');
@@ -73,6 +75,132 @@
   let composer = $state<HTMLTextAreaElement>();
   let atBottom = $state(true);
   let usage = $state<Usage>();
+  let slashOpen = $state(false);
+  let slashDismissed = $state(false);
+  let slashSelected = $state(0);
+  let botCommands: BotCommand[] = $state([]);
+  let atOpen = $state(false);
+  let atDismissed = $state(false);
+  let atSelected = $state(0);
+  let fileHits: string[] = $state([]);
+  let fileQueryToken = 0;
+  let caret = $state(0);
+
+  const builtinCommands: BotCommand[] = [
+    { name: 'new', description: 'start a fresh chat' }
+  ];
+
+  function commandQuery(): string {
+    const text = prompt.trimStart();
+    if (!text.startsWith('/')) {
+      return '';
+    }
+    return text.slice(1).toLowerCase();
+  }
+
+  const slashMatches = $derived.by(() => {
+    const query = commandQuery();
+    if (query.length > 64 || query.includes('\n')) {
+      return [];
+    }
+    const all = [...builtinCommands, ...botCommands];
+    if (!query) {
+      return all;
+    }
+    return all.filter((item) => item.name.toLowerCase().includes(query) || item.description.toLowerCase().includes(query));
+  });
+
+  $effect(() => {
+    if (slashMatches.length === 0) {
+      if (slashOpen) {
+        slashOpen = false;
+      }
+      return;
+    }
+    if (!slashOpen && commandQuery() !== '') {
+      if (slashDismissed) {
+        slashDismissed = false;
+      } else {
+        slashOpen = true;
+      }
+    }
+    if (commandQuery() === '') {
+      slashDismissed = false;
+    }
+    if (slashSelected >= slashMatches.length) {
+      slashSelected = 0;
+    }
+  });
+
+  function atToken(): { start: number; query: string } | undefined {
+    const before = prompt.slice(0, Math.min(caret, prompt.length));
+    const match = /(?:^|[\s([{'"`])@([^\s@]*)$/.exec(before);
+    if (!match) {
+      return undefined;
+    }
+    return { start: match.index === -1 ? 0 : match.index + match[0].indexOf('@'), query: match[1].toLowerCase() };
+  }
+
+  async function refreshFileHits(query: string): Promise<void> {
+    if (!projectId) {
+      return;
+    }
+    const token = ++fileQueryToken;
+    try {
+      const hits = await client.ProjectFiles(projectId, query) as FileHit[];
+      if (token === fileQueryToken) {
+        fileHits = (hits ?? []).map((hit) => hit.path);
+      }
+    } catch {
+      if (token === fileQueryToken) {
+        fileHits = [];
+      }
+    }
+  }
+
+  function syncAtPicker(): void {
+    caret = composer?.selectionStart ?? prompt.length;
+    atOpen = !atDismissed && !!atToken();
+    if (!atOpen) {
+      atDismissed = false;
+    }
+  }
+
+  $effect(() => {
+    if (!atOpen) {
+      return;
+    }
+    const token = atToken();
+    if (!token) {
+      atOpen = false;
+      return;
+    }
+    void refreshFileHits(token.query);
+  });
+
+  function insertFile(path: string): void {
+    const token = atToken();
+    const start = token ? token.start : prompt.length;
+    const end = Math.min(caret, prompt.length);
+    prompt = `${prompt.slice(0, start)}@${path} ${prompt.slice(end)}`;
+    atOpen = false;
+    composer?.focus();
+  }
+
+  async function loadCommands(): Promise<void> {
+    try {
+      const items = await client.Commands() as BotCommand[];
+      botCommands = items ?? [];
+    } catch {
+      botCommands = [];
+    }
+  }
+
+  function completeCommand(item: BotCommand): void {
+    prompt = `/${item.name} `;
+    slashOpen = false;
+    composer?.focus();
+  }
 
   onMount(async () => {
     if (/Linux/.test(navigator.userAgent) && !/(Chrome|Chromium)/.test(navigator.userAgent)) {
@@ -83,6 +211,7 @@
     baseUrl = localStorage.getItem('ax-url') ?? '';
     username = localStorage.getItem('ax-username') ?? '';
     await subscribe(receive);
+    void loadCommands();
     if (browser) {
       try {
         const response = await fetch('/api/setup');
@@ -552,12 +681,26 @@
 
   async function send(): Promise<void> {
     const text = prompt.trim();
-    if (!text || isRunning(sessionId)) {
+    if (!text) {
+      return;
+    }
+    if (isRunning(sessionId)) {
+      await steer(text);
       return;
     }
     if (!sessionId) {
       await newSession();
       if (!sessionId) {
+        return;
+      }
+    }
+
+    const trimmed = text.trimStart();
+    if (trimmed.startsWith('/')) {
+      const name = trimmed.slice(1).split(/\s/)[0];
+      if (name === 'new') {
+        prompt = '';
+        await newSession();
         return;
       }
     }
@@ -576,6 +719,18 @@
     } catch (cause) {
       transcriptsBySession[targetSession]?.pop();
       runningSessions = runningSessions.filter((id) => id !== targetSession);
+      error = messageFrom(cause);
+    }
+  }
+
+  async function steer(text: string): Promise<void> {
+    try {
+      await client.Steer(sessionId, text);
+      messages.push({ kind: 'message', role: 'user', content: text });
+      prompt = '';
+      error = '';
+      await scrollToEnd(true);
+    } catch (cause) {
       error = messageFrom(cause);
     }
   }
@@ -799,12 +954,91 @@
   }
 
   function keydown(event: KeyboardEvent): void {
+    if (atOpen && fileHits.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        atSelected = (atSelected + 1) % fileHits.length;
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        atSelected = (atSelected - 1 + fileHits.length) % fileHits.length;
+        return;
+      }
+      if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        insertFile(fileHits[atSelected] ?? fileHits[0]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        atOpen = false;
+        return;
+      }
+    }
+    if (slashOpen) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        slashSelected = slashMatches.length > 0 ? (slashSelected + 1) % slashMatches.length : 0;
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        slashSelected = slashMatches.length > 0 ? (slashSelected - 1 + slashMatches.length) % slashMatches.length : 0;
+        return;
+      }
+      if ((event.key === 'Tab' || event.key === 'Enter') && !event.shiftKey && !event.isComposing) {
+        const item = slashMatches[slashSelected];
+        if (item) {
+          event.preventDefault();
+          completeCommand(item);
+        } else {
+          slashOpen = false;
+        }
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        slashOpen = false;
+        slashDismissed = true;
+        return;
+      }
+    } else if (event.key === '/' && prompt.trim() === '') {
+      slashOpen = true;
+    }
+    if ('ArrowLeft ArrowRight Home End Backspace Delete @'.split(' ').includes(event.key)) {
+      queueMicrotask(syncAtPicker);
+    } else if (event.key === ' ' || event.key === 'Enter') {
+      atOpen = false;
+      atDismissed = false;
+    }
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
       return;
     }
     event.preventDefault();
     void send();
   }
+
+  let slashPicker = $state<HTMLElement>();
+  let filePicker = $state<HTMLElement>();
+
+  $effect(() => {
+    atSelected;
+    const container = filePicker;
+    if (!container) {
+      return;
+    }
+    container.querySelectorAll('.slash-row')[atSelected]?.scrollIntoView({ block: 'nearest' });
+  });
+
+  $effect(() => {
+    slashSelected;
+    const container = slashPicker;
+    if (!container) {
+      return;
+    }
+    container.querySelectorAll('.slash-row')[slashSelected]?.scrollIntoView({ block: 'nearest' });
+  });
 
   const rendered = new Map<string, string>();
 
@@ -1109,6 +1343,39 @@
 
         <footer>
           {#if error}<p class="error footer-error" role="alert">{error}</p>{/if}
+          {#if atOpen && fileHits.length > 0}
+            <div class="slash-picker" bind:this={filePicker} role="listbox" aria-label="Files">
+              {#each fileHits as path, index (path)}
+                <button
+                  class="slash-row"
+                  class:selected={index === atSelected}
+                  role="option"
+                  aria-selected={index === atSelected}
+                  onmouseenter={() => atSelected = index}
+                  onclick={() => insertFile(path)}
+                >
+                  <strong>{path}</strong>
+                </button>
+              {/each}
+            </div>
+          {/if}
+          {#if slashOpen && slashMatches.length > 0}
+            <div class="slash-picker" bind:this={slashPicker} role="listbox" aria-label="Commands">
+              {#each slashMatches as item, index (item.name)}
+                <button
+                  class="slash-row"
+                  class:selected={index === slashSelected}
+                  role="option"
+                  aria-selected={index === slashSelected}
+                  onmouseenter={() => slashSelected = index}
+                  onclick={() => completeCommand(item)}
+                >
+                  <strong>/{item.name}</strong>
+                  <span>{item.description}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
           {#if usage && (usage.context_input ?? usage.input) > 0}
             <div class="context-bar" role="status">
               {#if usage.model}<span class="context-cell context-model" title="Model serving this chat">{usage.model}</span>{/if}
@@ -1119,7 +1386,7 @@
             </div>
           {/if}
           <div class="composer">
-            <textarea bind:this={composer} bind:value={prompt} onkeydown={keydown} rows="1" placeholder="Message AX" aria-label="Message AX"></textarea>
+            <textarea bind:this={composer} bind:value={prompt} onkeydown={keydown} oninput={() => queueMicrotask(syncAtPicker)} onclick={() => queueMicrotask(syncAtPicker)} rows="1" placeholder="Message AX" aria-label="Message AX"></textarea>
             {#if isRunning(sessionId)}
               <button class="stop" onclick={() => void cancel()} aria-label="Stop">■</button>
             {:else}
