@@ -10,6 +10,8 @@ export type ClientEvent = {
   output?: string
   media_type?: string
   size?: number
+  input?: number
+  usage?: { input: number; output: number; cached_input: number }
 }
 
 type Listener = (event: ClientEvent) => void

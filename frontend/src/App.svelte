@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
-  import { ArrowDown, ArrowUp, Bot as BotIcon, ChevronRight, Copy, FileText, Folder, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, Paperclip, Plug, Plus, Power, Settings, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
+  import { ArrowDown, ArrowUp, Bot as BotIcon, Check, ChevronRight, Copy, FileText, Folder, FolderMinus, FolderUp, Menu, MessageSquarePlus, Moon, Paperclip, Plug, Plus, Power, Settings, SlidersHorizontal, Sun, Terminal, Trash2, Wrench, X } from '@lucide/svelte';
   import { browser, client, subscribe } from './client';
 
   type Project = { id: string; name: string };
@@ -19,8 +19,9 @@
   type ToolItem = { kind: 'tool'; id: string; name: string; arguments: string; output: string; status: 'running' | 'done' | 'failed'; expanded: boolean };
   type ArtifactItem = { kind: 'artifact'; id: string; name: string; media_type: string; size: number; session_id: string; source?: string };
   type ChatItem = Message | ToolItem | ArtifactItem;
-  type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[] };
-  type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number };
+  type Usage = { input: number; output: number; cached_input: number; context_input?: number; context_output?: number; window?: number; model?: string };
+  type SessionDetail = Session & { messages: StoredMessage[]; artifacts: StoredArtifact[]; usage?: Usage };
+  type AXEvent = { type: string; session_id?: string; run_id?: string; sequence?: number; id?: string; name?: string; arguments?: string; text?: string; output?: string; media_type?: string; size?: number; input?: number; cached_input?: number; window?: number; model?: string };
   type UpdateStatus = { current: string; latest?: string; available: boolean; downloaded: boolean; rollback: boolean; checking: boolean; error?: string; last_checked?: string };
 
   let baseUrl = $state('');
@@ -71,6 +72,7 @@
   let transcript = $state<HTMLElement>();
   let composer = $state<HTMLTextAreaElement>();
   let atBottom = $state(true);
+  let usage = $state<Usage>();
 
   onMount(async () => {
     if (/Linux/.test(navigator.userAgent) && !/(Chrome|Chromium)/.test(navigator.userAgent)) {
@@ -206,6 +208,16 @@
 
   function applyTheme(): void {
     document.documentElement.dataset.theme = darkMode ? 'dark' : 'light';
+  }
+
+  let copiedIndex = $state<number | null>(null);
+
+  async function copyMessage(content: string, index: number): Promise<void> {
+    await navigator.clipboard.writeText(content);
+    copiedIndex = index;
+    setTimeout(() => {
+      if (copiedIndex === index) copiedIndex = null;
+    }, 1500);
   }
 
   async function connect(): Promise<void> {
@@ -349,6 +361,7 @@
     botId = id;
     sessionId = '';
     messages = [];
+    usage = undefined;
     localStorage.removeItem('ax-session');
     localStorage.setItem('ax-bot', id);
   }
@@ -433,6 +446,7 @@
       projectId = targetProject;
       sessionId = item.id;
       messages = [];
+      usage = undefined;
       transcriptsBySession[item.id] = messages;
       sessionsByProject[targetProject] = [item, ...(sessionsByProject[targetProject] ?? [])];
       localStorage.setItem('ax-project', targetProject);
@@ -524,6 +538,7 @@
       const cached = transcriptsBySession[id];
       messages = cached && isRunning(id) ? cached : restored;
       transcriptsBySession[id] = messages;
+      usage = item.usage;
       localStorage.setItem('ax-project', item.project_id);
       localStorage.setItem('ax-session', item.id);
       sidebarOpen = false;
@@ -628,6 +643,21 @@
       void prepareArtifact(artifact);
       if (targetSession === sessionId) {
         void scrollToEnd();
+      }
+      return;
+    }
+    if (event.type === 'usage') {
+      if (targetSession === sessionId) {
+        const input = Number(event.input ?? 0);
+        const cachedInput = Number(event.cached_input ?? 0);
+        const carried = usage ?? { input: 0, output: 0, cached_input: 0 };
+        usage = {
+          input: input > 0 ? input : carried.input,
+          output: Number(event.output ?? 0),
+          cached_input: cachedInput > 0 ? cachedInput : carried.cached_input,
+          window: Number(event.window ?? 0) || undefined,
+          model: event.model || carried.model
+        };
       }
       return;
     }
@@ -754,6 +784,20 @@
     }
   }
 
+  function formatPercent(ratio: number): string {
+    return ` (${Math.floor(ratio * 100)}%)`;
+  }
+
+  function formatTokens(value: number): string {
+    if (value >= 1_000_000) {
+      return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+    }
+    if (value >= 1_000) {
+      return `${Math.round(value / 1_000)}k`;
+    }
+    return `${value}`;
+  }
+
   function keydown(event: KeyboardEvent): void {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
       return;
@@ -762,9 +806,16 @@
     void send();
   }
 
+  const rendered = new Map<string, string>();
+
   function render(text: string): string {
+    const cached = rendered.get(text);
+    if (cached !== undefined) {
+      return cached;
+    }
     const clean = DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
     if (!clean.includes('<table')) {
+      rendered.set(text, clean);
       return clean;
     }
     const document = new DOMParser().parseFromString(clean, 'text/html');
@@ -788,7 +839,9 @@
       table.replaceWith(wrapper);
       wrapper.append(table);
     }
-    return document.body.innerHTML;
+    const html = document.body.innerHTML;
+    rendered.set(text, html);
+    return html;
   }
 
   function isNumericValue(value: string): boolean {
@@ -812,7 +865,32 @@
     }
     await tick();
     transcript?.scrollTo({ top: transcript.scrollHeight });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    transcript?.scrollTo({ top: transcript.scrollHeight });
     atBottom = true;
+  }
+
+  $effect(() => {
+    messages;
+    const element = transcript;
+    if (!element) {
+      return;
+    }
+    trackImages(element);
+  });
+
+  function trackImages(root: HTMLElement): void {
+    for (const image of root.querySelectorAll('img')) {
+      if (image.complete || image.dataset.tracked === '1') {
+        continue;
+      }
+      image.dataset.tracked = '1';
+      image.addEventListener('load', () => {
+        if (atBottom) {
+          transcript?.scrollTo({ top: transcript.scrollHeight });
+        }
+      });
+    }
   }
 </script>
 
@@ -950,18 +1028,25 @@
           {#if messages.length === 0 && !loading}
             <div class="empty"><h1>What can I help with?</h1><p>Messages run in the selected project.</p></div>
           {/if}
-          {#each messages as item}
+          {#each messages as item, index (item.kind + ':' + index)}
             {#if item.kind === 'message'}
               <article class:assistant={item.role === 'assistant'} class:user={item.role === 'user'}>
                 <div class="role">{item.role === 'assistant' ? 'AX' : 'You'}</div>
-                <div class="message-body">
-                  {#if item.content}
-                    {@html render(item.content)}
-                    {#if isRunning(sessionId) && item === messages.at(-1)}
-                      <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Writing</div>
+                <div class="message-wrap">
+                  <div class="message-body">
+                    {#if item.content}
+                      {@html render(item.content)}
+                      {#if isRunning(sessionId) && item === messages.at(-1)}
+                        <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Writing</div>
+                      {/if}
+                    {:else}
+                      <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Thinking</div>
                     {/if}
-                  {:else}
-                    <div class="response-status" role="status"><span class="activity-dot"></span><span class="activity-dot"></span><span class="activity-dot"></span>Thinking</div>
+                  </div>
+                  {#if item.content}
+                    <button class="message-copy" class:copied={copiedIndex === index} onclick={() => void copyMessage(item.content, index)} aria-label="Copy message" title="Copy message">
+                      {#if copiedIndex === index}<Check aria-hidden="true" />{:else}<Copy aria-hidden="true" />{/if}
+                    </button>
                   {/if}
                 </div>
               </article>
@@ -1024,6 +1109,15 @@
 
         <footer>
           {#if error}<p class="error footer-error" role="alert">{error}</p>{/if}
+          {#if usage && (usage.context_input ?? usage.input) > 0}
+            <div class="context-bar" role="status">
+              {#if usage.model}<span class="context-cell context-model" title="Model serving this chat">{usage.model}</span>{/if}
+              <span class="context-cell" title="Total context tokens sent in the last request"><span>Context</span><strong>{formatTokens((usage.context_input ?? usage.input) + (usage.context_output ?? usage.output))}{#if usage.window}{formatPercent(((usage.context_input ?? usage.input) + (usage.context_output ?? usage.output)) / usage.window)}{/if}</strong></span>
+              <span class="context-cell" title="Input tokens of the last request"><span>In</span><strong>{formatTokens(usage.input)}</strong></span>
+              <span class="context-cell" title="Output tokens of the last request"><span>Out</span><strong>{formatTokens(usage.output)}</strong></span>
+              <span class="context-cell" title="Cached input tokens of the last request"><span>Cached</span><strong>{formatTokens(usage.cached_input)}{formatPercent(usage.cached_input / ((usage.context_input ?? usage.input) + (usage.context_output ?? usage.output)))}</strong></span>
+            </div>
+          {/if}
           <div class="composer">
             <textarea bind:this={composer} bind:value={prompt} onkeydown={keydown} rows="1" placeholder="Message AX" aria-label="Message AX"></textarea>
             {#if isRunning(sessionId)}
@@ -1032,7 +1126,6 @@
               <button class="send" onclick={() => void send()} disabled={!prompt.trim()} aria-label="Send"><ArrowUp aria-hidden="true" /></button>
             {/if}
           </div>
-          <p class="hint">Enter to send · Shift+Enter for a new line</p>
         </footer>
       </section>
     </div>
