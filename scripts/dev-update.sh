@@ -3,9 +3,20 @@ set -eu
 
 ecosystem="$(cd "$(dirname "$0")/../.." && pwd)"
 address="${AXI_WEB_ADDRESS:-127.0.0.1:7777}"
-bin_dir="$HOME/.local/bin"
-log_dir="$HOME/.local/share/axi/logs"
-export PATH="$HOME/.local/share/mise/shims:$PATH"
+user_home="$(getent passwd "$(id -u)" | cut -d: -f6)"
+bin_dir="$user_home/.local/bin"
+log_dir="$user_home/.local/share/axi/logs"
+export HOME="$user_home"
+export PATH="$user_home/.local/share/mise/shims:$PATH"
+export CARGO_HOME="$user_home/.cargo"
+export GOCACHE="$user_home/.cache/go-build"
+export GOPATH="$user_home/go"
+export NODE_COMPILE_CACHE="$user_home/.cache/node-compile-cache"
+export npm_config_cache="$user_home/.npm"
+export XDG_CACHE_HOME="$user_home/.cache"
+export XDG_CONFIG_HOME="$user_home/.config"
+export XDG_DATA_HOME="$user_home/.local/share"
+export XDG_STATE_HOME="$user_home/.local/state"
 
 log() {
     printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$log_dir/dev-update.log"
